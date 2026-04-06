@@ -22,13 +22,13 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
       gender: 1
     };
     const mockResponse: SignupResponse = {
-      code: '4',
-      message: 'Hoàn thành mục tiêu hoặc giao dịch thành công.',
+      code: '1000',
+      message: 'OK',
       user_id: 'user_new_001'
     };
     nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, mockResponse);
     const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('4');
+    expect(result.code).toBe('1000');
     expect(result.user_id).toBe('user_new_001');
   });
 
@@ -40,13 +40,13 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
       full_name: 'Jane Smith'
     };
     const mockResponse: SignupResponse = {
-      code: '4',
+      code: '1000',
       message: 'OK',
       user_id: 'user_new_002'
     };
     nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, mockResponse);
     const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('4');
+    expect(result.code).toBe('1000');
   });
 
   // 3. Success: Gender Female (0)
@@ -59,7 +59,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
     };
     nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, { code: '4', message: 'OK', user_id: 'u3' });
     const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('4');
+    expect(result.code).toBe('1000');
   });
 
   // 4. Failure: Phone number already exists (Code 5)
@@ -69,7 +69,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
       password: 'password',
       full_name: 'Duplicate'
     };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(409, { code: '5', message: 'Số điện thoại đã tồn tại.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(409, { code: '3006', message: 'Số điện thoại đã tồn tại.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
@@ -80,35 +80,35 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
       password: '123',
       full_name: 'Weak Pass'
     };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '5', message: 'Mật khẩu quá yếu.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2002', message: 'Mật khẩu quá yếu.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
   // 6. Validation: Missing phone_number
   it('6. should fail if phone_number is missing', async () => {
     const mockRequest: any = { password: 'pass', full_name: 'Missing Phone' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '5', message: 'Thiếu số điện thoại.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu số điện thoại.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
   // 7. Validation: Missing password
   it('7. should fail if password is missing', async () => {
     const mockRequest: any = { phone_number: '0123456791', full_name: 'Missing Pass' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '5', message: 'Thiếu mật khẩu.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu mật khẩu.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
   // 8. Validation: Missing full_name
   it('8. should fail if full_name is missing', async () => {
     const mockRequest: any = { phone_number: '0123456792', password: 'pass' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '5', message: 'Thiếu họ tên.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu họ tên.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
   // 9. Validation: Invalid phone format (letters)
   it('9. should fail for phone number with letters', async () => {
     const mockRequest: SignupRequest = { phone_number: '0123abc789', password: 'pass', full_name: 'Invalid Phone' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '5', message: 'SĐT không hợp lệ.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2002', message: 'SĐT không hợp lệ.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
@@ -120,7 +120,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
       full_name: 'Bad Date',
       dob: '01/01/1990' // Wrong format
     };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '5', message: 'Định dạng ngày sinh sai.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2002', message: 'Định dạng ngày sinh sai.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
@@ -149,7 +149,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
   // 14. Validation: Gender invalid (out of range)
   it('14. should handle invalid gender value (e.g., 2)', async () => {
     const mockRequest: SignupRequest = { phone_number: '0123456797', password: 'pass', full_name: 'Gender Invalid', gender: 2 };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '5', message: 'Giới tính không hợp lệ.' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2003', message: 'Giới tính không hợp lệ.' });
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
@@ -161,7 +161,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
       full_name: 'Leap Year',
       dob: '2000-02-29'
     };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, { code: '4', message: 'OK', user_id: 'u15' });
+    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, { code: '1000', message: 'OK', user_id: 'u15' });
     const result = await signup(baseUrl, mockRequest);
     expect(result.code).toBe('4');
   });
