@@ -163,6 +163,6 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
     };
     nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, { code: '1000', message: 'OK', user_id: 'u15' });
     const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('4');
+    expect(result.code).toBe('1000');
   });
 });
