@@ -12,7 +12,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
     nock.cleanAll();
   });
 
-  // 1. Success: Valid signup with all fields
+  // 1. Success: Valid signup with all fields (Need to call on DB to check if DB is updated or not)
   it('1. should return success (Code 4) with all fields provided', async () => {
     const mockRequest: SignupRequest = {
       phone_number: '0123456789',
@@ -62,7 +62,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
     expect(result.code).toBe('1000');
   });
 
-  // 4. Failure: Phone number already exists (Code 5)
+  // 4. Failure: Phone number already exists (Call signup API twice, to check on if the numbers are signed up in DB)
   it('4. should fail (Code 5) if phone number is already registered', async () => {
     const mockRequest: SignupRequest = {
       phone_number: '0123456789',
@@ -84,7 +84,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
-  // 6. Validation: Missing phone_number
+  // 6. Validation: Missing phone_number (Need more test case about too short phone number or too long)
   it('6. should fail if phone_number is missing', async () => {
     const mockRequest: any = { password: 'pass', full_name: 'Missing Phone' };
     nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu số điện thoại.' });
@@ -112,7 +112,7 @@ describe('Signup API Unit Test - Comprehensive Suite', () => {
     await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
   });
 
-  // 10. Validation: Invalid DOB format
+  // 10. Validation: Invalid DOB format (Need more test case for invalid date or months)
   it('10. should fail if date of birth format is invalid', async () => {
     const mockRequest: SignupRequest = {
       phone_number: '0123456793',
