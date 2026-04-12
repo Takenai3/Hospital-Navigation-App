@@ -1,168 +1,192 @@
-import nock from 'nock';
-import { signup, SignupRequest, SignupResponse } from '../../src/auth/signup';
+import request from 'supertest';
+import app from '../../src/app';
+import { db } from '../../src/config/database';
 
-describe('Signup API Unit Test - Comprehensive Suite', () => {
-  const baseUrl = 'https://api.hospital.com';
+describe('Auth Signup - Comprehensive Integration Test Suite', () => {
+  const endpoint = '/api/auth/signup';
+  const validBase = { 
+    phone_number: '0123000001', 
+    password: 'Password123!', 
+    full_name: 'Nguyen Van A',
+    gender: 1 
+  };
 
-  beforeEach(() => {
-    if (!nock.isActive()) nock.activate();
+  // Dọn dẹp dữ liệu trước và sau khi chạy bộ test
+  beforeAll(async () => {
+    await db.query("DELETE FROM users WHERE phone_number LIKE '0123%' OR phone_number LIKE '0912%'");
   });
 
-  afterEach(() => {
-    nock.cleanAll();
+  afterAll(async () => {
+    await db.query("DELETE FROM users WHERE phone_number LIKE '0123%' OR phone_number LIKE '0912%'");
   });
 
-  // 1. Success: Valid signup with all fields (Need to call on DB to check if DB is updated or not)
-  it('1. should return success (Code 4) with all fields provided', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0123456789',
-      password: 'StrongPassword123!',
-      full_name: 'John Doe',
-      dob: '1990-01-01',
-      gender: 1
-    };
-    const mockResponse: SignupResponse = {
-      code: '1000',
-      message: 'OK',
-      user_id: 'user_new_001'
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, mockResponse);
-    const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('1000');
-    expect(result.user_id).toBe('user_new_001');
+  describe('Success Scenarios (Mã 1000)', () => {
+    it('TC-1: Đăng ký thành công với đầy đủ thông tin hợp lệ', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '0123000001' });
+      expect(res.status).toBe(200);
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-2: Đăng ký thành công với SĐT 11 số (Đầu số cũ)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '01230000011' });
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-3: Logic tái đăng ký: Đăng ký -> Xóa -> Đăng ký lại cùng SĐT', async () => {
+      const phone = '0123999999';
+      await request(app).post(endpoint).send({ ...validBase, phone_number: phone });
+      await db.query('DELETE FROM users WHERE phone_number = $1', [phone]);
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: phone });
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-4: Đăng ký với SĐT bắt đầu bằng +84', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '+84912345678' });
+      expect(res.body.code).toBe(1000);
+    });
   });
 
-  // 2. Success: Minimal mandatory fields
-  it('2. should return success (Code 4) with only mandatory fields', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0987654321',
-      password: 'password123',
-      full_name: 'Jane Smith'
-    };
-    const mockResponse: SignupResponse = {
-      code: '1000',
-      message: 'OK',
-      user_id: 'user_new_002'
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, mockResponse);
-    const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('1000');
+  describe('Validation Errors - Missing/Empty Params (Mã 2001)', () => {
+    it('TC-5: Gửi body rỗng {}', async () => {
+      const res = await request(app).post(endpoint).send({});
+      expect(res.body.code).toBe(2001);
+    });
+
+    it('TC-6: Thiếu trường phone_number', async () => {
+      const { phone_number, ...rest } = validBase;
+      const res = await request(app).post(endpoint).send(rest);
+      expect(res.body.code).toBe(2001);
+    });
+
+    it('TC-7: Thiếu trường password', async () => {
+      const { password, ...rest } = validBase;
+      const res = await request(app).post(endpoint).send(rest);
+      expect(res.body.code).toBe(2001);
+    });
+
+    it('TC-8: phone_number là null', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: null });
+      expect(res.body.code).toBe(2001);
+    });
+
+    it('TC-9: password là chuỗi rỗng ""', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: "" });
+      expect(res.body.code).toBe(2001);
+    });
+
+    it('TC-10: full_name chỉ chứa khoảng trắng "   "', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: "   " });
+      expect(res.body.code).toBe(2001);
+    });
+
+    it('TC-11: phone_number là undefined', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: undefined });
+      expect(res.body.code).toBe(2001);
+    });
   });
 
-  // 3. Success: Gender Female (0)
-  it('3. should handle female gender (0) correctly', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0123456788',
-      password: 'pass',
-      full_name: 'Mary Jane',
-      gender: 0
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, { code: '4', message: 'OK', user_id: 'u3' });
-    const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('1000');
+  describe('Data Type & Formatting (Mã 2002)', () => {
+    it('TC-12: phone_number truyền vào là mảng [0123]', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: ['0123456789'] });
+      expect(res.body.code).toBe(2002);
+    });
+
+    it('TC-13: SĐT chứa ký tự đặc biệt (0123#456*)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '0123#456*' });
+      expect(res.body.code).toBe(2002);
+    });
+
+    it('TC-14: SĐT chứa chữ cái (0123abc789)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '0123abc789' });
+      expect(res.body.code).toBe(2002);
+    });
+
+    it('TC-15: SĐT bắt đầu bằng số không hợp lệ (Số 1)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '1234567890' });
+      expect(res.body.code).toBe(2002);
+    });
   });
 
-  // 4. Failure: Phone number already exists (Call signup API twice, to check on if the numbers are signed up in DB)
-  it('4. should fail (Code 5) if phone number is already registered', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0123456789',
-      password: 'password',
-      full_name: 'Duplicate'
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(409, { code: '3006', message: 'Số điện thoại đã tồn tại.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
+  describe('Boundary Values - Phone & Name (Mã 2002/2003)', () => {
+    it('TC-16: SĐT quá ngắn (9 số)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '012345678' });
+      expect(res.body.code).toBe(2002);
+    });
+
+    it('TC-17: SĐT quá dài (12 số)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '012345678901' });
+      expect(res.body.code).toBe(2002);
+    });
+
+    it('TC-18: Tên chỉ có 1 ký tự', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: 'A' });
+      expect(res.body.code).toBe(2003);
+    });
+
+    it('TC-19: Tên cực dài (255 ký tự)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: 'A'.repeat(255), phone_number: '0123111005' });
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-20: Tên chứa Emoji (😀)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: 'Nguyen 😀 A', phone_number: '0123111006' });
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-21: Tên chứa ký tự số', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: 'Nguyen 123 A' });
+      expect(res.body.code).toBe(2003);
+    });
   });
 
-  // 5. Failure: Password too weak
-  it('5. should fail if password does not meet security requirements', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0123456790',
-      password: '123',
-      full_name: 'Weak Pass'
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2002', message: 'Mật khẩu quá yếu.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
+  describe('Password Policies (Mã 2003)', () => {
+    it('TC-22: Password đúng biên dưới (8 ký tự)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: 'Pass123!', phone_number: '0123111001' });
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-23: Password đúng biên trên (100 ký tự)', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: 'A'.repeat(99) + '!', phone_number: '0123111002' });
+      expect(res.body.code).toBe(1000);
+    });
+
+    it('TC-24: Password thiếu chữ hoa', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: 'password123!' });
+      expect(res.body.code).toBe(2003);
+    });
+
+    it('TC-25: Password thiếu số', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: 'Password!' });
+      expect(res.body.code).toBe(2003);
+    });
+
+    it('TC-26: Password có khoảng trắng ở giữa', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: 'Pass word123!' });
+      expect(res.body.code).toBe(2003);
+    });
+
+    it('TC-27: Password có khoảng trắng ở đầu/cuối', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, password: ' Password123! ', phone_number: '0123111007' });
+      expect(res.body.code).toBe(1000);
+    });
   });
 
-  // 6. Validation: Missing phone_number (Need more test case about too short phone number or too long)
-  it('6. should fail if phone_number is missing', async () => {
-    const mockRequest: any = { password: 'pass', full_name: 'Missing Phone' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu số điện thoại.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
+  describe('Security Rules (Mã 2003)', () => {
+    it('TC-28: SQL Injection attempt qua full_name', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: "' OR 1=1 --" });
+      expect(res.body.code).toBe(2003);
+    });
+
+    it('TC-29: XSS Injection attempt qua full_name', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, full_name: "<script>alert(1)</script>" });
+      expect(res.body.code).toBe(2003);
+    });
   });
 
-  // 7. Validation: Missing password
-  it('7. should fail if password is missing', async () => {
-    const mockRequest: any = { phone_number: '0123456791', full_name: 'Missing Pass' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu mật khẩu.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 8. Validation: Missing full_name
-  it('8. should fail if full_name is missing', async () => {
-    const mockRequest: any = { phone_number: '0123456792', password: 'pass' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest).reply(400, { code: '2001', message: 'Thiếu họ tên.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 9. Validation: Invalid phone format (letters)
-  it('9. should fail for phone number with letters', async () => {
-    const mockRequest: SignupRequest = { phone_number: '0123abc789', password: 'pass', full_name: 'Invalid Phone' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2002', message: 'SĐT không hợp lệ.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 10. Validation: Invalid DOB format (Need more test case for invalid date or months)
-  it('10. should fail if date of birth format is invalid', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0123456793',
-      password: 'pass',
-      full_name: 'Bad Date',
-      dob: '01/01/1990' // Wrong format
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2002', message: 'Định dạng ngày sinh sai.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 11. System: 500 Internal Server Error
-  it('11. should handle server-side errors (500)', async () => {
-    const mockRequest: SignupRequest = { phone_number: '0123456794', password: 'pass', full_name: 'Server Error' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(500);
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 12. System: 503 Service Unavailable
-  it('12. should handle service unavailable (503)', async () => {
-    const mockRequest: SignupRequest = { phone_number: '0123456795', password: 'pass', full_name: 'Down' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(503);
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 13. System: Timeout simulation
-  it('13. should handle request timeouts', async () => {
-    const mockRequest: SignupRequest = { phone_number: '0123456796', password: 'pass', full_name: 'Slow' };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).delay(3000).reply(200);
-    const result = await signup(baseUrl, mockRequest);
-    expect(result).toBeDefined();
-  });
-
-  // 14. Validation: Gender invalid (out of range)
-  it('14. should handle invalid gender value (e.g., 2)', async () => {
-    const mockRequest: SignupRequest = { phone_number: '0123456797', password: 'pass', full_name: 'Gender Invalid', gender: 2 };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(400, { code: '2003', message: 'Giới tính không hợp lệ.' });
-    await expect(signup(baseUrl, mockRequest)).rejects.toThrow();
-  });
-
-  // 15. Success: Leap year DOB
-  it('15. should handle valid leap year date of birth', async () => {
-    const mockRequest: SignupRequest = {
-      phone_number: '0123456798',
-      password: 'pass',
-      full_name: 'Leap Year',
-      dob: '2000-02-29'
-    };
-    nock(baseUrl).post('/api/auth/signup', mockRequest as any).reply(200, { code: '1000', message: 'OK', user_id: 'u15' });
-    const result = await signup(baseUrl, mockRequest);
-    expect(result.code).toBe('1000');
+  describe('Business Logic Errors (Mã 3006)', () => {
+    it('TC-30: Đăng ký trùng số điện thoại đã tồn tại', async () => {
+      const res = await request(app).post(endpoint).send({ ...validBase, phone_number: '0123000001' });
+      expect(res.body.code).toBe(3006);
+    });
   });
 });
