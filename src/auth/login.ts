@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export interface LoginRequest {
-  phone_number: string;
+  phone: string;
   password: string;
   device_token?: string;
   platform?: string;
@@ -13,7 +13,9 @@ export interface LoginResponse {
   data: {
     user_id: string;
     full_name: string;
-    phone_number: string;
+    phone: string;
+    accessToken: string;
+    refreshToken: string;
   };
 }
 

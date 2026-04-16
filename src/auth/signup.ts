@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export interface SignupRequest {
-  phone_number: string;
+  phone: string;
   password: string;
   full_name: string;
   dob?: string;

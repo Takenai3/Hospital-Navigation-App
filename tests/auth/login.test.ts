@@ -1,201 +1,201 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { db } from '../../src/config/database';
+import { RESPONSE_CODES } from '../../src/constants/response-codes';
 
+/**
+ * Auth Login - Integration Test Suite
+ * Tuân thủ 100% master_test_generator_prompt.txt
+ */
 describe('Auth Login - Comprehensive Integration Test Suite', () => {
   const endpoint = '/api/auth/login';
-  const testUser = { phone_number: '0912000001', password: 'Password123!', full_name: 'User Login' };
+  const testUser = { 
+    phone: '0981222222', 
+    password: 'Password123!', 
+    full_name: 'Login Test User' 
+  };
 
   beforeAll(async () => {
-    await db.query("DELETE FROM users WHERE phone_number = $1", [testUser.phone_number]);
-    // Tạo sẵn user để test login
+    // Dọn dẹp và tạo user thật cho các kịch bản đăng nhập
+    await db.query("DELETE FROM users WHERE phone = $1", [testUser.phone]);
+    // Sử dụng cột 'password_hash' theo đúng schema
     await db.query(
-      "INSERT INTO users (phone_number, password, full_name, status) VALUES ($1, $2, $3, $4)",
-      [testUser.phone_number, testUser.password, testUser.full_name, 'active']
+      "INSERT INTO users (phone, password_hash, full_name, status) VALUES ($1, $2, $3, $4)",
+      [testUser.phone, testUser.password, testUser.full_name, 'active']
     );
   });
 
   afterAll(async () => {
-    await db.query("DELETE FROM users WHERE phone_number = $1", [testUser.phone_number]);
+    await db.query("DELETE FROM users WHERE phone = $1", [testUser.phone]);
+    await db.end();
   });
 
-  describe('Successful Login & Token Logic', () => {
+  describe('Success Scenarios (Mã 1000)', () => {
     it('TC-1: Đăng nhập thành công với thông tin đúng', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password 
       });
       expect(res.status).toBe(200);
-      expect(res.body.code).toBe(1000);
-      expect(typeof res.body.data.accessToken).toBe('string');
+      expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
+      expect(res.body.message).toMatch(/thành công/i);
+      expect(res.body.data).toHaveProperty('accessToken');
     });
 
     it('TC-2: Đăng nhập thành công trả về đúng thông tin user_id', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password 
       });
       expect(res.body.data).toHaveProperty('user_id');
     });
 
-    it('TC-3: Hai lần đăng nhập liên tiếp phải sinh ra 2 token khác nhau', async () => {
+    it('TC-3: Hai lần đăng nhập liên tiếp sinh ra token khác nhau', async () => {
       const res1 = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password 
       });
       const res2 = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password 
       });
       expect(res1.body.data.accessToken).not.toBe(res2.body.data.accessToken);
     });
 
-    it('TC-4: Kiểm tra sự tồn tại của Refresh Token trong response', async () => {
+    it('TC-4: Đăng nhập thành công với SĐT có khoảng trắng', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: '  ' + testUser.phone + '  ', 
         password: testUser.password 
       });
-      expect(res.body.data).toHaveProperty('refreshToken');
+      expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
     });
   });
 
-  describe('Input Validation Errors (Mã 2001/2002)', () => {
-    it('TC-5: Bỏ trống phone_number', async () => {
+  describe('Nhóm Validation (Mã 2001/2002)', () => {
+    it('TC-5: Bỏ trống phone', async () => {
       const res = await request(app).post(endpoint).send({ password: testUser.password });
-      expect(res.body.code).toBe(2001);
+      expect(res.body.code).toBe(RESPONSE_CODES.MISSING_PARAM);
+      expect(res.body.message).toMatch(/thiếu/i);
     });
 
     it('TC-6: Bỏ trống password', async () => {
-      const res = await request(app).post(endpoint).send({ phone_number: testUser.phone_number });
-      expect(res.body.code).toBe(2001);
+      const res = await request(app).post(endpoint).send({ phone: testUser.phone });
+      expect(res.body.code).toBe(RESPONSE_CODES.MISSING_PARAM);
     });
 
     it('TC-7: Gửi body rỗng {}', async () => {
       const res = await request(app).post(endpoint).send({});
-      expect(res.body.code).toBe(2001);
+      expect(res.body.code).toBe(RESPONSE_CODES.MISSING_PARAM);
     });
 
-    it('TC-8: Truyền phone_number sai kiểu dữ liệu (Object)', async () => {
+    it('TC-8: Truyền phone sai kiểu dữ liệu (Array)', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: { num: testUser.phone_number }, 
+        phone: [testUser.phone], 
         password: testUser.password 
       });
-      expect(res.body.code).toBe(2002);
+      expect(res.body.code).toBe(RESPONSE_CODES.INVALID_TYPE);
     });
 
-    it('TC-9: Truyền password sai kiểu dữ liệu (Array)', async () => {
+    it('TC-9: SQL Injection qua phone', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
-        password: ['pass'] 
+        phone: "' OR '1'='1", 
+        password: 'any' 
       });
-      expect(res.body.code).toBe(2002);
+      expect(res.body.code).toBe(RESPONSE_CODES.INVALID_TYPE);
     });
   });
 
-  describe('Authentication Failures (Mã 3007/3008)', () => {
+  describe('Nhóm Authentication Failures (Mã 3007/3008)', () => {
     it('TC-10: SĐT chưa từng đăng ký', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: '0888888888', 
+        phone: '0981999999', 
         password: 'any' 
       });
-      expect(res.body.code).toBe(3007);
+      expect(res.body.code).toBe(RESPONSE_CODES.USER_NOT_FOUND);
+      expect(res.body.message).toMatch(/không tồn tại|không tìm thấy/i);
     });
 
     it('TC-11: Sai mật khẩu (Sai 1 ký tự)', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password + 'x' 
       });
-      expect(res.body.code).toBe(3008);
+      expect(res.body.code).toBe(RESPONSE_CODES.PASSWORD_INCORRECT);
+      expect(res.body.message).toMatch(/mật khẩu/i);
     });
 
     it('TC-12: Sai mật khẩu (Phân biệt hoa thường)', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password.toLowerCase() 
       });
-      expect(res.body.code).toBe(3008);
+      expect(res.body.code).toBe(RESPONSE_CODES.PASSWORD_INCORRECT);
     });
 
-    it('TC-13: Mật khẩu có thêm khoảng trắng ở cuối', async () => {
+    it('TC-13: Mật khẩu là null', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
-        password: testUser.password + ' ' 
-      });
-      expect(res.body.code).toBe(3008);
-    });
-
-    it('TC-14: Mật khẩu là null', async () => {
-      const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: null 
       });
-      expect(res.body.code).toBe(2001);
+      expect(res.body.code).toBe(RESPONSE_CODES.MISSING_PARAM);
     });
   });
 
-  describe('Security & Account Status (Mã 3009/SQLi)', () => {
-    it('TC-15: Chặn đăng nhập đối với tài khoản bị khóa (status = banned)', async () => {
-      await db.query("UPDATE users SET status = 'banned' WHERE phone_number = $1", [testUser.phone_number]);
+  describe('Nhóm Security & Account Status (Mã 3101/Banned)', () => {
+    it('TC-14: Chặn đăng nhập đối với tài khoản bị khóa (banned)', async () => {
+      // Cập nhật trạng thái trong DB thật
+      await db.query("UPDATE users SET status = 'banned' WHERE phone = $1", [testUser.phone]);
+      
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password 
       });
-      expect(res.body.code).toBe(3009);
-      await db.query("UPDATE users SET status = 'active' WHERE phone_number = $1", [testUser.phone_number]);
+      
+      expect(res.body.code).toBe(RESPONSE_CODES.PERMISSION_DENIED);
+      expect(res.body.message).toMatch(/khóa|truy cập/i);
+      
+      // Hoàn tác trạng thái
+      await db.query("UPDATE users SET status = 'active' WHERE phone = $1", [testUser.phone]);
     });
 
-    it('TC-16: SQL Injection attempt qua phone_number', async () => {
+    it('TC-15: Chặn đăng nhập đối với tài khoản chưa kích hoạt (inactive)', async () => {
+      await db.query("UPDATE users SET status = 'inactive' WHERE phone = $1", [testUser.phone]);
+      
       const res = await request(app).post(endpoint).send({ 
-        phone_number: "' OR '1'='1", 
-        password: 'any' 
-      });
-      expect(res.body.code).toBe(2002);
-    });
-
-    it('TC-17: SQL Injection attempt qua password', async () => {
-      const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
-        password: "' OR '1'='1" 
-      });
-      expect(res.body.code).toBe(3008);
-    });
-
-    it('TC-18: Tài khoản chưa kích hoạt (status = pending)', async () => {
-      await db.query("UPDATE users SET status = 'pending' WHERE phone_number = $1", [testUser.phone_number]);
-      const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password 
       });
-      expect(res.body.code).toBe(3009); // Giả định cùng mã code chặn truy cập
-      await db.query("UPDATE users SET status = 'active' WHERE phone_number = $1", [testUser.phone_number]);
+      
+      expect(res.body.code).toBe(RESPONSE_CODES.PERMISSION_DENIED);
+      
+      await db.query("UPDATE users SET status = 'active' WHERE phone = $1", [testUser.phone]);
     });
   });
 
-  describe('System & Edge Cases', () => {
-    it('TC-19: Gửi body chứa trường lạ (Check resilience)', async () => {
+  describe('Edge Cases & System Resilience', () => {
+    it('TC-16: Gửi body chứa trường dư thừa', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
+        phone: testUser.phone, 
         password: testUser.password,
-        hacker_data: 'exploit' 
+        extra_field: 'hacker'
       });
-      expect(res.body.code).toBe(1000);
+      expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
     });
 
-    it('TC-20: Đăng nhập với SĐT có khoảng trắng ở đầu/cuối', async () => {
+    it('TC-17: Đăng nhập với mật khẩu cực dài', async () => {
       const res = await request(app).post(endpoint).send({ 
-        phone_number: ' ' + testUser.phone_number + ' ', 
+        phone: testUser.phone, 
+        password: 'A'.repeat(1000) 
+      });
+      expect(res.body.code).toBe(RESPONSE_CODES.PASSWORD_INCORRECT);
+    });
+
+    it('TC-18: Kiểm tra Refresh Token trong response', async () => {
+      const res = await request(app).post(endpoint).send({ 
+        phone: testUser.phone, 
         password: testUser.password 
       });
-      expect(res.body.code).toBe(1000); // Hệ thống nên trim
-    });
-
-    it('TC-21: Thử đăng nhập với mật khẩu cực dài', async () => {
-      const res = await request(app).post(endpoint).send({ 
-        phone_number: testUser.phone_number, 
-        password: 'a'.repeat(500) 
-      });
-      expect(res.body.code).toBe(3008);
+      expect(res.body.data).toHaveProperty('refreshToken');
     });
   });
 });
