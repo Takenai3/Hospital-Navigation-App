@@ -814,4 +814,236 @@ app.get('/api/flow/edge_status', async (req: Request, res: Response) => {
     return res.json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
   }
 });
+
+// API: SET_EDGE_CAPACITY (Quy định số người tối đa/m2 - Admin only)
+app.patch('/api/admin/set_edge_capacity', async (req: Request, res: Response) => {
+  try {
+    const { token, edge_id, max_capacity } = req.body;
+
+    // 1. Validation: 2001 (Missing Param)
+    if (!token || !edge_id || max_capacity === undefined) {
+      return res.json({
+        code: RESPONSE_CODES.MISSING_PARAM,
+        message: 'Missing required parameter'
+      });
+    }
+
+    // 2. Validation: 2002 (Invalid Type)
+    // max_capacity phải là số nguyên (int) theo spec
+    if (typeof max_capacity !== 'number' || !Number.isInteger(max_capacity)) {
+      return res.json({
+        code: RESPONSE_CODES.INVALID_TYPE,
+        message: 'Invalid parameter type'
+      });
+    }
+
+    // 3. Check Token & Authorization: 3001, 3002, 3102
+    // Giả lập logic kiểm tra token Admin
+    if (token === 'expired_token') {
+      return res.json({ code: RESPONSE_CODES.TOKEN_EXPIRED, message: 'Token expired' });
+    }
+    if (token !== 'admin_secret_token_2026') {
+      // Nếu token đúng format nhưng không có quyền Admin
+      if (token.includes('user')) {
+        return res.json({ code: RESPONSE_CODES.ADMIN_ROLE_REQUIRED, message: 'Admin role required' });
+      }
+      return res.json({ code: RESPONSE_CODES.INVALID_TOKEN, message: 'Invalid token' });
+    }
+
+    // 4. Kiểm tra tồn tại Edge: 4003
+    const edgeCheck = await db.query('SELECT edge_id FROM edges WHERE edge_id = $1', [edge_id]);
+    if (edgeCheck.rows.length === 0) {
+      return res.json({ code: RESPONSE_CODES.EDGE_NOT_FOUND, message: 'Edge not found' });
+    }
+
+    // 5. Cập nhật dữ liệu vào Database
+    await db.query(
+      'UPDATE edges SET max_capacity = $1 WHERE edge_id = $2',
+      [max_capacity, edge_id]
+    );
+
+    // 6. Trả về kết quả thành công: 1000
+    return res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: {
+        edge_id: edge_id,
+        max_capacity: max_capacity
+      }
+    });
+
+  } catch (error: any) {
+    console.error(error);
+    // Xử lý lỗi truy vấn (9902) hoặc kết nối (9901)
+    if (error.message.includes('connection')) {
+      return res.json({ code: RESPONSE_CODES.DB_CONNECTION_FAILED, message: 'Database connection failed' });
+    }
+    return res.json({ code: RESPONSE_CODES.DB_QUERY_FAILED, message: 'Database query failed' });
+  }
+});
+
+// API: SET_PRIORITY (Thiết lập luồng ưu tiên cấp cứu)
+app.post('/api/flow/set_priority', async (req: Request, res: Response) => {
+  try {
+    const { token, emergency_id, start_point, end_point } = req.body;
+
+    // 1. Check Missing Params (2001)
+    if (!token || !emergency_id || !start_point || !end_point) {
+      return res.json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Check Auth (3101/3102)
+    if (token !== 'medical_staff_token_2026' && token !== 'admin_secret_token_2026') {
+      return res.json({ code: RESPONSE_CODES.PERMISSION_DENIED, message: 'Permission denied' });
+    }
+
+    // 3. Check Node Existence (4002)
+    const nodeCheck = await db.query(
+      'SELECT node_id FROM nodes WHERE node_id IN ($1, $2)',
+      [start_point, end_point]
+    );
+    if (nodeCheck.rows.length < 2) {
+      return res.json({ code: RESPONSE_CODES.NODE_NOT_FOUND, message: 'Node not found' });
+    }
+
+    // 4. Gọi Engine điều phối (Giả lập)
+    // Xử lý logic 9001 (Engine Unavailable) hoặc 9002 (Timeout) nếu cần
+    try {
+      const priorityRoute = [
+        { node_id: start_point, edge_id: 'E_01', clearance_required: true, alert_radius: 10, estimated_arrival: 0 },
+        { node_id: 'NODE_MID', edge_id: 'E_02', clearance_required: true, alert_radius: 10, estimated_arrival: 30 },
+        { node_id: end_point, edge_id: null, clearance_required: false, alert_radius: 0, estimated_arrival: 60 }
+      ];
+
+      // Giả lập case không tìm thấy đường (5003)
+      if (end_point === 'NODE_C') {
+        return res.json({ code: RESPONSE_CODES.PATH_NOT_FOUND, message: 'Path not found' });
+      }
+
+      // 5. Success (1000)
+      return res.json({
+        code: RESPONSE_CODES.SUCCESS,
+        message: 'OK',
+        data: {
+          priority_route: priorityRoute
+        }
+      });
+
+    } catch (engineError) {
+      return res.json({ code: RESPONSE_CODES.ENGINE_TIMEOUT, message: 'Engine timeout' });
+    }
+
+  } catch (error) {
+    return res.json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: FLOW_STATS_ADMIN (Thống kê lượt người theo thời gian cho Admin)
+app.get('/api/admin/flow_stats_admin', async (req: Request, res: Response) => {
+  try {
+    const { token, date, area_id } = req.query;
+
+    // 1. Validation (2001, 2003)
+    if (!token || !date) {
+      return res.json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (typeof date !== 'string' || !dateRegex.test(date)) {
+      return res.json({ code: RESPONSE_CODES.INVALID_PARAM_VALUE, message: 'Invalid date format' });
+    }
+
+    // 2. Authorization (3102)
+    if (token !== 'admin_secret_token_2026') {
+      return res.json({ code: RESPONSE_CODES.ADMIN_ROLE_REQUIRED, message: 'Admin role required' });
+    }
+
+    // 3. Check Existence (4002)
+    if (area_id) {
+      const areaCheck = await db.query('SELECT node_id FROM nodes WHERE node_id = $1', [area_id]);
+      if (areaCheck.rows.length === 0) {
+        return res.json({ code: RESPONSE_CODES.NODE_NOT_FOUND, message: 'Area not found' });
+      }
+    }
+
+    // 4. Query Logic (Toàn viện hoặc Khu vực)
+    let sql = `SELECT hour, total_visitors, area_id FROM hourly_stats WHERE stats_date = $1`;
+    const params: any[] = [date];
+    if (area_id) {
+      sql += ` AND area_id = $2`;
+      params.push(area_id);
+    }
+    sql += ` ORDER BY hour ASC`;
+
+    const result = await db.query(sql, params);
+
+    // 5. Success (1000)
+    return res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: result.rows
+    });
+
+  } catch (error: any) {
+    if (error.message.includes('connection') || error.message.includes('terminated')) {
+      return res.json({ code: RESPONSE_CODES.DB_CONNECTION_FAILED, message: 'Database connection failed' });
+    }
+    return res.json({ code: RESPONSE_CODES.DB_QUERY_FAILED, message: 'Database query failed' });
+  }
+});
+
+// ADMIN API: RESET_TRAFFIC :Xóa dữ liệu lưu lượng hiện tại để hệ thống tính toán lại từ đầu (Reset sensor/cache)
+app.post('/api/admin/reset_traffic', async (req: Request, res: Response) => {
+  try {
+    const { token, area_id, reason } = req.body;
+
+    // 1. Validation: 2001 (Missing Param)
+    if (!token || !reason) {
+      return res.json({
+        code: RESPONSE_CODES.MISSING_PARAM,
+        message: 'Missing token or reason'
+      });
+    }
+
+    // 2. Check Admin Role: 3102
+    if (token !== 'admin_secret_token_2026') {
+      return res.json({
+        code: RESPONSE_CODES.ADMIN_ROLE_REQUIRED,
+        message: 'Admin role required'
+      });
+    }
+
+    // 3. Nếu truyền area_id, kiểm tra xem khu vực có tồn tại không: 4002
+    if (area_id) {
+      const areaCheck = await db.query('SELECT node_id FROM nodes WHERE node_id = $1', [area_id]);
+      if (areaCheck.rows.length === 0) {
+        return res.json({
+          code: RESPONSE_CODES.NODE_NOT_FOUND,
+          message: 'Area (Node) not found'
+        });
+      }
+    }
+
+    // 4. Logic Reset dữ liệu
+    // Nếu có area_id: reset cụ thể khu vực đó. Nếu không: reset toàn bệnh viện.
+    if (area_id) {
+      await db.query('UPDATE edge_density SET current_count = 0, fill_percentage = "0%" WHERE area_id = $1', [area_id]);
+    } else {
+      await db.query('UPDATE edge_density SET current_count = 0, fill_percentage = "0%"');
+    }
+
+    // 5. Thành công: 1000
+    return res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: [] // Trả về mảng rỗng theo spec ảnh 4
+    });
+
+  } catch (error: any) {
+    return res.json({
+      code: RESPONSE_CODES.DB_QUERY_FAILED,
+      message: 'Database operation failed'
+    });
+  }
+});
+
 export default app;
