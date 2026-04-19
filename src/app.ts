@@ -459,4 +459,204 @@ app.get('/api/map/beacons', async (req, res) => {
     }
 });
 
+/**
+ * --- NHÓM API ADMIN (PHẦN 3) ---
+ */
+
+// Middleware Auth Mock
+const adminAuth = (req: any, res: any, next: any) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+    if (authHeader.includes('invalid-token')) return res.status(200).json({ code: '3001' });
+    if (authHeader.includes('expired-token')) return res.status(200).json({ code: '3002' });
+    if (authHeader.includes('token-user')) return res.status(200).json({ code: '1009' });
+    next();
+};
+
+// --- Nhóm Node (Note) ---
+app.post('/api/admin/admin_add_note', adminAuth, async (req, res) => {
+    try {
+        const { id, map_id, x, y, type, name } = req.body;
+        if (!id || !map_id || x === undefined || y === undefined || !name) {
+            return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        }
+        if (typeof id !== 'string') return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE });
+
+        await db.query(
+            "INSERT INTO nodes (id, map_id, x_coordinate, y_coordinate, type) VALUES ($1, $2, $3, $4, $5)",
+            [id, map_id, x, y, type || 'hallway']
+        );
+        await db.query("INSERT INTO wards (map_node_id, name) VALUES ($1, $2) ON CONFLICT (map_node_id) DO UPDATE SET name = $2", [id, name]);
+        
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'Thêm node thành công' });
+    } catch (error) {
+        console.error('❌ Error in admin_add_note:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+app.post('/api/admin/admin_edit_note', adminAuth, async (req, res) => {
+    try {
+        const { id, x, y, name } = req.body;
+        if (!id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (typeof id !== 'string') return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE });
+
+        const result = await db.query(
+            "UPDATE nodes SET x_coordinate = COALESCE($1, x_coordinate), y_coordinate = COALESCE($2, y_coordinate) WHERE id = $3",
+            [x, y, id]
+        );
+        
+        if (name) {
+            await db.query("UPDATE wards SET name = $1 WHERE map_node_id = $2", [name, id]);
+        }
+
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('❌ Error in admin_edit_note:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+app.post('/api/admin/admin_del_note', adminAuth, async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        
+        await db.query("DELETE FROM wards WHERE map_node_id = $1", [id]);
+        await db.query("DELETE FROM steps WHERE start_node_id = $1 OR end_node_id = $1", [id]);
+        await db.query("DELETE FROM devices WHERE current_node_id = $1", [id]);
+        await db.query("DELETE FROM paths WHERE start_node_id = $1 OR end_node_id = $1", [id]);
+        await db.query("DELETE FROM saved_searches WHERE target_node_id = $1", [id]);
+        await db.query("DELETE FROM heatmaps WHERE node_id = $1", [id]);
+
+        const result = await db.query("DELETE FROM nodes WHERE id = $1", [id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('❌ Error in admin_del_note:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// --- Nhóm Edge ---
+app.post('/api/admin/admin_add_edge', adminAuth, async (req, res) => {
+    try {
+        const { map_id, start_node, end_node, distance } = req.body;
+        if (!map_id || !start_node || !end_node || distance === undefined) {
+            return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        }
+        if (typeof map_id !== 'number') return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE });
+        if (distance <= 0) return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE });
+
+        const result = await db.query(
+            "INSERT INTO steps (map_id, start_node_id, end_node_id, distance) VALUES ($1, $2, $3, $4) RETURNING id",
+            [map_id, start_node, end_node, distance]
+        );
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: { id: result.rows[0].id } });
+    } catch (error) {
+        console.error('❌ Error in admin_add_edge:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+app.post('/api/admin/admin_edit_edge', adminAuth, async (req, res) => {
+    try {
+        const { id, distance } = req.body;
+        if (!id || distance === undefined) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (distance <= 0) return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE });
+
+        const result = await db.query("UPDATE steps SET distance = $1 WHERE id = $2", [distance, id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('❌ Error in admin_edit_edge:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+app.post('/api/admin/admin_del_edge', adminAuth, async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        const result = await db.query("DELETE FROM steps WHERE id = $1", [id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('❌ Error in admin_del_edge:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// --- Nhóm Weight ---
+app.post('/api/admin/set_weight', adminAuth, async (req, res) => {
+    try {
+        const { edge_id, weight } = req.body;
+        if (edge_id === undefined || weight === undefined) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+
+        const numericWeight = Number(weight);
+        if (isNaN(numericWeight)) return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE });
+        if (numericWeight <= 0) return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE });
+
+        const result = await db.query("UPDATE steps SET distance = $1 WHERE id = $2", [numericWeight, edge_id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('Lỗi set_weight:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// --- Nhóm Device ---
+app.post('/api/admin/admin_add_device', adminAuth, async (req, res) => {
+    try {
+        const { current_node_id, type, status } = req.body;
+        if (!current_node_id || !type || !status) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (typeof type !== 'string') return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE });
+        
+        const validStatuses = ['available', 'in_use', 'maintenance'];
+        if (!validStatuses.includes(status)) return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE });
+
+        const result = await db.query(
+            "INSERT INTO devices (current_node_id, type, status) VALUES ($1, $2, $3) RETURNING id",
+            [current_node_id, type, status]
+        );
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: { id: result.rows[0].id } });
+    } catch (error) {
+        console.error('❌ Error in admin_add_device:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+app.post('/api/admin/admin_edit_device', adminAuth, async (req, res) => {
+    try {
+        const { id, status } = req.body;
+        if (!id || !status) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        
+        const validStatuses = ['available', 'in_use', 'maintenance'];
+        if (!validStatuses.includes(status)) return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE });
+
+        const result = await db.query("UPDATE devices SET status = $1 WHERE id = $2", [status, id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('❌ Error in admin_edit_device:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+app.post('/api/admin/admin_del_device', adminAuth, async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        
+        const result = await db.query("DELETE FROM devices WHERE id = $1", [id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4001' });
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS });
+    } catch (error) {
+        console.error('❌ Error in admin_del_device:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
 export default app;
