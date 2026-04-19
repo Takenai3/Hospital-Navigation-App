@@ -459,4 +459,359 @@ app.get('/api/map/beacons', async (req, res) => {
     }
 });
 
+/**
+ * --- NHÓM API QUẢN LÝ LUỒNG (FLOW) ---
+ */
+
+// API: Báo cáo vật cản trong bệnh viện
+app.post('/api/flow/report_obstacle', async (req, res) => {
+  try {
+    const { token, route_id, type, x, y, description } = req.body;
+
+    // 1. Validation (Mã 2001)
+    if (!token) {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    if (!route_id) {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    if (!type) {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    if (x === undefined || y === undefined) {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    if (!description || description.trim() === "") {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Data Type (Mã 2002)
+    if (typeof token !== 'string' || typeof route_id !== 'string' || typeof type !== 'string' || typeof description !== 'string') {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+    if (typeof x !== 'number' || typeof y !== 'number') {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // --- Check route existence (Mã 5003) ---
+    const routeCheck = await db.query("SELECT * FROM routes WHERE route_id = $1", [route_id.trim()]);
+    if (routeCheck.rows.length === 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.PATH_NOT_FOUND, message: 'Path not found' });
+    }
+
+    // 3. Invalid Value (Mã 2003)
+    if (x < 0 || y < 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE, message: 'Invalid parameter value' });
+    }
+
+    // 4. Logic: Insert to DB
+    await db.query(
+      "INSERT INTO obstacles (route_id, type, x_coordinate, y_coordinate, description, status) VALUES ($1, $2, $3, $4, $5, 'ACTIVE')",
+      [route_id.trim(), type.trim(), x, y, description.trim()]
+    );
+
+    return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'OK' });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: Lấy danh sách cảnh báo mật độ
+app.get('/api/flow/get_alerts', async (req, res) => {
+  try {
+    const { token, current_edge } = req.query;
+
+    // 1. Validation (Mã 2001)
+    if (!token) {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    if (!current_edge || String(current_edge).trim() === "") {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Data Type & Security (Mã 2002)
+    const edgeId = String(current_edge);
+    if (Array.isArray(current_edge) || edgeId.includes("'") || edgeId.includes(";")) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // --- Check edge existence (Mã 4003) ---
+    const edgeCheck = await db.query("SELECT * FROM edges WHERE edge_id = $1", [edgeId.trim()]);
+    if (edgeCheck.rows.length === 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.EDGE_NOT_FOUND, message: 'Edge not found' });
+    }
+
+    // 3. Logic
+    const alertsRes = await db.query(
+      "SELECT edge_id FROM edge_status WHERE occupancy_rate > 0.8 AND edge_id != $1",
+      [edgeId.trim()]
+    );
+
+    // 4. Mapping Output
+    const data = alertsRes.rows.map((row, index) => ({
+      alert_id: `ALT_${Date.now()}_${index}`,
+      blocked_edge: row.edge_id
+    }));
+
+    return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'OK', data });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: Lấy số lượng người thực tế trên một lộ trình
+app.get('/api/flow/get_density', async (req, res) => {
+  try {
+    const { route_id } = req.query;
+
+    // 1. Validation (Mã 2001)
+    if (!route_id || String(route_id).trim() === "") {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Data Type & Security (Mã 2002)
+    const routeIdStr = String(route_id);
+    if (Array.isArray(route_id) || routeIdStr.includes("'") || routeIdStr.includes(";")) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // --- Check route existence (Mã 5003) ---
+    const routeCheck = await db.query("SELECT * FROM routes WHERE route_id = $1", [routeIdStr.trim()]);
+    if (routeCheck.rows.length === 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.PATH_NOT_FOUND, message: 'Path not found' });
+    }
+
+    // 3. Logic
+    const densityRes = await db.query(
+      "SELECT current_people FROM route_density WHERE route_id = $1",
+      [routeIdStr.trim()]
+    );
+
+    const currentPeople = densityRes.rows.length > 0 ? densityRes.rows[0].current_people : 0;
+
+    // 4. Output (Mã 1000)
+    return res.status(200).json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: {
+        current_people: currentPeople
+      }
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: Lấy dữ liệu bản đồ nhiệt
+app.get('/api/flow/get_heatmap', async (req, res) => {
+  try {
+    const { route_id } = req.query;
+
+    // 1. Validation (Mã 2001)
+    if (!route_id || String(route_id).trim() === "") {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Data Type & Security (Mã 2002)
+    const routeIdStr = String(route_id);
+    if (Array.isArray(route_id) || routeIdStr.includes("'") || routeIdStr.includes(";")) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // --- Check route existence (Mã 5003) ---
+    const routeCheck = await db.query("SELECT * FROM routes WHERE route_id = $1", [routeIdStr.trim()]);
+    if (routeCheck.rows.length === 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.PATH_NOT_FOUND, message: 'Path not found' });
+    }
+
+    // 3. Logic
+    const heatmapRes = await db.query(
+      "SELECT x, y, density_value as value, status_message as message, radius FROM heatmap_data WHERE route_id = $1",
+      [routeIdStr.trim()]
+    );
+
+    // 4. Output (Mã 1000)
+    return res.status(200).json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: heatmapRes.rows.map(row => ({
+        x: Number(row.x),
+        y: Number(row.y),
+        value: Number(row.value),
+        message: row.message,
+        radius: Number(row.radius)
+      }))
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: Lấy danh sách các điểm ùn tắc nghiêm trọng
+app.get('/api/flow/get_bottlenecks', async (req, res) => {
+  try {
+    const { route_id } = req.query;
+
+    // 1. Validation (Mã 2001)
+    if (!route_id || String(route_id).trim() === "") {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Data Type & Security (Mã 2002)
+    const routeIdStr = String(route_id);
+    if (Array.isArray(route_id) || routeIdStr.includes("'") || routeIdStr.includes(";")) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // --- Check route existence (Mã 5003) ---
+    const routeCheck = await db.query("SELECT * FROM routes WHERE route_id = $1", [routeIdStr.trim()]);
+    if (routeCheck.rows.length === 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.PATH_NOT_FOUND, message: 'Path not found' });
+    }
+
+    // 3. Logic
+    const bottlenecksRes = await db.query(
+      `SELECT edge_name, x, y,
+       CASE WHEN occupancy_rate > 0.9 THEN 'CRITICAL' ELSE 'WARNING' END as severity
+       FROM bottlenecks_data WHERE route_id = $1 AND occupancy_rate > 0.8`,
+      [routeIdStr.trim()]
+    );
+
+    // 4. Output (Mã 1000)
+    return res.status(200).json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: bottlenecksRes.rows.map(row => ({
+        edge_name: row.edge_name,
+        x: Number(row.x),
+        y: Number(row.y),
+        severity: row.severity
+      }))
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: Dự báo lưu lượng
+app.get('/api/flow/flow_forecast', async (req, res) => {
+  if (req.method !== 'GET') {
+    return res.status(200).json({ code: RESPONSE_CODES.METHOD_NOT_ALLOWED, message: 'Method not allowed' });
+  }
+
+  try {
+    const { area_id, time_offset } = req.query;
+
+    // 1. Missing required parameter (Mã 2001)
+    if (time_offset === undefined || String(time_offset).trim() === "") {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // 2. Invalid parameter type (Mã 2002)
+    const offset = Number(time_offset);
+    if (isNaN(offset) || Array.isArray(time_offset)) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // 3. Invalid parameter value (Mã 2003)
+    if (offset !== 15 && offset !== 30) {
+      return res.status(200).json({ code: RESPONSE_CODES.INVALID_VALUE, message: 'Invalid parameter value' });
+    }
+
+    // 4. Node not found (Mã 4002)
+    const areaIdStr = area_id ? String(area_id).trim() : null;
+    if (areaIdStr) {
+      try {
+        const areaCheck = await db.query("SELECT * FROM areas WHERE area_id = $1", [areaIdStr]);
+        if (areaCheck.rows.length === 0) {
+          return res.status(200).json({ code: RESPONSE_CODES.NODE_NOT_FOUND, message: 'Node not found' });
+        }
+      } catch (dbErr) {
+        return res.status(200).json({ code: RESPONSE_CODES.DB_QUERY_FAILED, message: 'Database query failed' });
+      }
+    }
+
+    // 5. Engine Logic (Mã 9001, 9002)
+    try {
+      let query = "SELECT area_id, forecast_density, status_warning FROM flow_forecasts WHERE time_offset = $1";
+      let params: any[] = [offset];
+      if (areaIdStr) { query += " AND area_id = $2"; params.push(areaIdStr); }
+
+      const forecastRes = await db.query(query, params);
+
+      return res.status(200).json({
+        code: RESPONSE_CODES.SUCCESS,
+        message: 'OK',
+        data: forecastRes.rows.map(row => ({
+          area_id: row.area_id,
+          forecast_density: Number(row.forecast_density),
+          status_warning: row.status_warning
+        }))
+      });
+    } catch (engineError: any) {
+      if (engineError.message === 'TIMEOUT') {
+        return res.status(200).json({ code: RESPONSE_CODES.ENGINE_TIMEOUT, message: 'Engine timeout' });
+      }
+      return res.status(200).json({ code: RESPONSE_CODES.ENGINE_UNAVAILABLE, message: 'Engine unavailable' });
+    }
+
+  } catch (error) {
+    // 6. Unexpected exception (Mã 9999)
+    return res.status(200).json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
+
+// API: EDGE_STATUS (Xem % lấp đầy của 1 đoạn đường)
+app.get('/api/flow/edge_status', async (req: Request, res: Response) => {
+  try {
+    const { edge_id } = req.query;
+
+    // 1. Validation: 2001 (Missing), 2002 (Invalid Type)
+    if (!edge_id || (typeof edge_id === 'string' && edge_id.trim() === '')) {
+      return res.json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+    if (typeof edge_id !== 'string' || edge_id.includes("'")) {
+      return res.json({ code: RESPONSE_CODES.INVALID_TYPE, message: 'Invalid parameter type' });
+    }
+
+    // 2. Kiểm tra tồn tại đoạn đường: 4003
+    const edgeCheck = await db.query('SELECT edge_id FROM edges WHERE edge_id = $1', [edge_id]);
+    if (edgeCheck.rows.length === 0) {
+      return res.json({ code: RESPONSE_CODES.EDGE_NOT_FOUND, message: 'Edge not found' });
+    }
+
+    // 3. Lấy dữ liệu mật độ: 6002 nếu không có dữ liệu
+    const densityData = await db.query(
+      'SELECT edge_id, current_count, fill_percentage FROM edge_density WHERE edge_id = $1',
+      [edge_id]
+    );
+
+    if (densityData.rows.length === 0) {
+      return res.json({ code: RESPONSE_CODES.DENSITY_UNAVAILABLE, message: 'Density data unavailable' });
+    }
+
+    // 4. Thành công: 1000
+    return res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: densityData.rows[0]
+    });
+
+  } catch (error: any) {
+    if (error.message.includes('connection')) {
+      return res.json({ code: RESPONSE_CODES.DB_CONNECTION_FAILED, message: 'Database connection failed' });
+    }
+    return res.json({ code: RESPONSE_CODES.UNEXPECTED, message: 'Unexpected exception' });
+  }
+});
 export default app;
