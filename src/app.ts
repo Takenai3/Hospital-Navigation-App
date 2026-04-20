@@ -1046,4 +1046,270 @@ app.post('/api/admin/reset_traffic', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * --- NHÓM API THÔNG BÁO ĐẨY ---
+ */
+
+// API: Đăng ký nhận thông báo đẩy (FCM)
+app.post('/api/user/set_devtoken', async (req: Request, res: Response) => {
+  try {
+    const { token, device_token } = req.body;
+
+    // 1. Validation (Mã 2001: Missing parameter)
+    if (!token) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.MISSING_PARAM,
+        message: 'Missing required parameter: token'
+      });
+    }
+    if (!device_token) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.MISSING_PARAM,
+        message: 'Missing required parameter: device_token'
+      });
+    }
+
+    // 2. Data Type Validation (Mã 2002: Invalid type)
+    if (typeof token !== 'string' || typeof device_token !== 'string') {
+      return res.status(200).json({
+        code: RESPONSE_CODES.INVALID_TYPE,
+        message: 'Invalid parameter type'
+      });
+    }
+
+    // 3. Authentication & Security (Mã 3002: Invalid token)
+    // Giả lập check định dạng token người dùng (phải bắt đầu bằng user_access_)
+    if (!token.startsWith('user_access_') || token.includes("'")) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.INVALID_TOKEN,
+        message: 'Invalid token'
+      });
+    }
+
+    // 4. Business Logic: Lưu hoặc cập nhật Device Token vào DB
+    // Sử dụng ON CONFLICT để đảm bảo mỗi user chỉ có 1 device_token mới nhất
+    const sql = `
+      INSERT INTO user_devices (user_token, device_token, last_updated)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (user_token)
+      DO UPDATE SET device_token = EXCLUDED.device_token, last_updated = NOW()
+    `;
+
+    try {
+      await db.query(sql, [token.trim(), device_token.trim()]);
+    } catch (dbErr) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.DB_QUERY_FAILED,
+        message: 'Database operation failed'
+      });
+    }
+
+    // 5. Thành công (Mã 1000)
+    return res.status(200).json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: []
+    });
+
+  } catch (error) {
+    console.error(error);
+    // 6. Unexpected exception (Mã 9999)
+    return res.status(200).json({
+      code: RESPONSE_CODES.UNEXPECTED,
+      message: 'Unexpected exception'
+    });
+  }
+});
+
+// API: Lấy danh sách các thông báo (nhắc lịch khám, cảnh báo khu vực đông người...)
+app.get('/api/notif/get_notification', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers['token'] as string;
+    const { index, count } = req.query;
+
+    // 1. Validation: Missing Token (Mã 3003)
+    if (!token) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.USER_NOT_AUTHENTICATED,
+        message: 'User not authenticated'
+      });
+    }
+
+    // 2. Validation: Missing paging params (Mã 2001)
+    if (index === undefined || count === undefined) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.MISSING_PARAM,
+        message: 'Missing required parameter'
+      });
+    }
+
+    const idx = parseInt(String(index));
+    const cnt = parseInt(String(count));
+
+    // 3. Validation: Invalid Value (Mã 2003)
+    if (isNaN(idx) || isNaN(cnt) || idx < 0 || cnt <= 0) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.INVALID_VALUE,
+        message: 'Parameter value is invalid'
+      });
+    }
+
+    // 4. Get Data
+    const result = await db.query(
+      `SELECT notif_id, title, content, type, is_read, created_at
+       FROM notifications
+       WHERE user_token = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [token, cnt, idx]
+    );
+
+    // 5. Output: Thành công (Mã 1000)
+    return res.status(200).json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: result.rows
+    });
+
+  } catch (error) {
+      if (error.message.includes('connection') || error.message.includes('ECONNREFUSED')) {
+            return res.status(200).json({
+              code: RESPONSE_CODES.DB_CONNECTION_FAILED,
+              message: 'Database connection failed'
+            });
+          }
+
+    // 6. Unexpected exception (Mã 9999)
+    return res.status(200).json({
+      code: RESPONSE_CODES.UNEXPECTED,
+      message: 'Unexpected exception'
+    });
+  }
+});
+
+// API: Đánh dấu thông báo đã đọc (read_notification)
+
+app.post('/api/notif/read_notification', async (req: Request, res: Response) => {
+  try {
+    // 1. Lấy Token từ Header
+    const token = req.headers['token'] as string;
+
+    // 2. Lấy notif_id từ Body
+    const { notif_id } = req.body;
+
+    // --- KIỂM TRA XÁC THỰC (AUTH) ---
+    // Trường hợp: Không có token hoặc token hết hạn
+    if (!token) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.USER_NOT_AUTHENTICATED, // 3003
+        message: 'User not authenticated'
+      });
+    }
+
+    // --- KIỂM TRA THAM SỐ (VALIDATION) ---
+    // Trường hợp: Bỏ trống hoặc không truyền notif_id
+    if (!notif_id) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.MISSING_PARAM, // 2001
+        message: 'Missing required parameter'
+      });
+    }
+
+    // --- XỬ LÝ LOGIC ---
+
+    // Bước 1: Tìm thông báo và kiểm tra quyền sở hữu
+    const findNotif = await db.query(
+      'SELECT user_token, is_read FROM notifications WHERE notif_id = $1',
+      [notif_id]
+    );
+
+    // Trường hợp: notif_id không tồn tại trong hệ thống
+    if (findNotif.rows.length === 0) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.NOTIFICATION_NOT_FOUND, // 4004
+        message: 'Notification not found'
+      });
+    }
+
+    const notification = findNotif.rows[0];
+
+    // Trường hợp: Bảo mật - Người dùng A cố ý đọc thông báo của người dùng B
+    if (notification.user_token !== token) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.PERMISSION_DENIED, // 3101 (hoặc 1009 tùy mapping)
+        message: 'Not access'
+      });
+    }
+
+    // Bước 2: Cập nhật trạng thái nếu chưa đọc
+    // Nếu đã đọc rồi (is_read = '1'), vẫn trả về 1000 để đảm bảo UX
+    if (notification.is_read === '0') {
+      await db.query(
+        'UPDATE notifications SET is_read = $1 WHERE notif_id = $2',
+        ['1', notif_id]
+      );
+    }
+
+    // --- KẾT QUẢ ĐẦU RA ---
+    // Thành công: Trả về mã 1000 và mảng data rỗng
+    return res.status(200).json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: 'OK',
+      data: []
+    });
+
+  } catch (error: any) {
+    // --- XỬ LÝ LỖI HỆ THỐNG ---
+
+    // Lỗi kết nối Database
+    if (error.message.includes('connection')) {
+      return res.status(200).json({
+        code: RESPONSE_CODES.DATABASE_CONNECTION_FAILED,
+        message: 'Database connection failed'
+      });
+    }
+
+    // Lỗi query SQL
+    return res.status(200).json({
+      code: RESPONSE_CODES.DATABASE_QUERY_FAILED,
+      message: 'Database query failed'
+    });
+  }
+});
+
+// API: Xóa thông báo (del_notification)
+
+app.post('/api/notif/del_notification', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers['token'] as string;
+    const { notif_id } = req.body;
+
+    if (!token) return res.status(200).json({ code: RESPONSE_CODES.USER_NOT_AUTHENTICATED });
+
+    // Kiểm tra thiếu tham số notif_id
+    if (!notif_id) {
+      return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM, message: 'Missing required parameter' });
+    }
+
+    // Kiểm tra sở hữu để chặn thao tác chéo dữ liệu tài khoản khác
+    const checkOwner = await db.query('SELECT user_token FROM notifications WHERE notif_id = $1', [notif_id]);
+
+    if (checkOwner.rows.length === 0) {
+      return res.status(200).json({ code: RESPONSE_CODES.NOTIFICATION_NOT_FOUND, message: 'Notification not found' });
+    }
+
+    if (checkOwner.rows[0].user_token !== token) {
+      return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED, message: 'Not access' });
+    }
+
+    // Thực hiện xóa khỏi lịch sử
+    await db.query('DELETE FROM notifications WHERE notif_id = $1', [notif_id]);
+
+    return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'Xóa thông báo thành công', data: [] });
+
+  } catch (error: any) {
+    return res.status(200).json({ code: RESPONSE_CODES.DATABASE_QUERY_FAILED });
+  }
+});
+
 export default app;
