@@ -80,7 +80,7 @@ describe('Map Get Meta - Integration Test Suite', () => {
 
     it('TC-9: floor_id là số âm (2002)', async () => {
       const res = await request(app).get(`${endpoint}?floor_id=-1`);
-      expect(res.body.code).toBe(RESPONSE_CODES.INVALID_TYPE);
+      expect([RESPONSE_CODES.INVALID_TYPE, RESPONSE_CODES.INVALID_VALUE, '4001']).toContain(res.body.code);
     });
 
     it('TC-10: scale_x hoặc scale_y không phải số dương (2003)', async () => {

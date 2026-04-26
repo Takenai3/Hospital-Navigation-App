@@ -9,7 +9,7 @@ describe('Integration Test: Flow Get Heatmap', () => {
 
     beforeAll(async () => {
         // Đảm bảo bảng routes và heatmap_data tồn tại
-        await db.query(`CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_id TEXT UNIQUE)`);
+        await db.query(`CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_id TEXT UNIQUE, map_id INT DEFAULT 1)`);
         await db.query(`
             CREATE TABLE IF NOT EXISTS heatmap_data (
                 id SERIAL PRIMARY KEY,
@@ -18,16 +18,17 @@ describe('Integration Test: Flow Get Heatmap', () => {
                 y FLOAT,
                 density_value FLOAT,
                 status_message TEXT,
-                radius FLOAT
+                radius FLOAT,
+                map_id INT DEFAULT 1
             )
         `);
 
         // 1. Chèn route mẫu
-        await db.query("INSERT INTO routes (route_id) VALUES ($1) ON CONFLICT DO NOTHING", [TEST_ROUTE]);
+        await db.query("INSERT INTO routes (route_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [TEST_ROUTE]);
 
         // 2. Chèn dữ liệu heatmap mẫu
         await db.query(
-            "INSERT INTO heatmap_data (route_id, x, y, density_value, status_message, radius) VALUES ($1, 150.5, 300.2, 0.85, 'Khu vực đông đúc', 20.0)",
+            "INSERT INTO heatmap_data (route_id, x, y, density_value, status_message, radius, map_id) VALUES ($1, 150.5, 300.2, 0.85, 'Khu vực đông đúc', 20.0, 1)",
             [TEST_ROUTE]
         );
     });

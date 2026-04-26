@@ -9,18 +9,19 @@ describe('Integration Test: Flow Get Density', () => {
 
   beforeAll(async () => {
     // 1. Đảm bảo bảng routes tồn tại
-    await db.query(`CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_id TEXT UNIQUE)`);
-    await db.query("INSERT INTO routes (route_id) VALUES ($1) ON CONFLICT DO NOTHING", [VALID_ROUTE]);
+    await db.query(`CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_id TEXT UNIQUE, map_id INT DEFAULT 1)`);
+    await db.query("INSERT INTO routes (route_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [VALID_ROUTE]);
 
     // 2. Khởi tạo dữ liệu mật độ
     await db.query(`
       CREATE TABLE IF NOT EXISTS route_density (
         route_id TEXT PRIMARY KEY,
-        current_people INTEGER
+        current_people INTEGER,
+        map_id INT DEFAULT 1
       )
     `);
     await db.query(
-      "INSERT INTO route_density (route_id, current_people) VALUES ($1, 25) ON CONFLICT (route_id) DO UPDATE SET current_people = 25",
+      "INSERT INTO route_density (route_id, current_people, map_id) VALUES ($1, 25, 1) ON CONFLICT (route_id) DO UPDATE SET current_people = 25",
       [VALID_ROUTE]
     );
   });

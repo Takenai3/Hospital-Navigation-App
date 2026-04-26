@@ -56,7 +56,7 @@ describe('Integration Test: Admin API set_edge_capacity', () => {
                     max_capacity: 80
                 });
 
-            expect(res.body.code).toBe(RESPONSE_CODES.ADMIN_ROLE_REQUIRED);
+            expect(res.body.code).toBe(RESPONSE_CODES.ADMIN_REQUIRED);
         });
 
         it('TC-03: 3001 | Invalid token - Token không hợp lệ', async () => {
@@ -68,7 +68,7 @@ describe('Integration Test: Admin API set_edge_capacity', () => {
                     max_capacity: 80
                 });
 
-            expect(res.body.code).toBe(RESPONSE_CODES.INVALID_TOKEN);
+            expect(res.body.code).toBe(RESPONSE_CODES.TOKEN_INVALID);
         });
     });
 

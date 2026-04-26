@@ -10,10 +10,10 @@ describe('Integration Test: API Get Density Alerts', () => {
 
     beforeAll(async () => {
         // Setup dữ liệu giả lập
-        await db.query("CREATE TABLE IF NOT EXISTS edges (edge_id TEXT PRIMARY KEY)");
-        await db.query("INSERT INTO edges (edge_id) VALUES ($1) ON CONFLICT DO NOTHING", [TEST_EDGE_START]);
-        await db.query("CREATE TABLE IF NOT EXISTS edge_status (edge_id TEXT PRIMARY KEY, occupancy_rate FLOAT)");
-        await db.query("INSERT INTO edge_status (edge_id, occupancy_rate) VALUES ($1, 0.95) ON CONFLICT (edge_id) DO UPDATE SET occupancy_rate = 0.95", [TEST_EDGE_JAM]);
+        await db.query("CREATE TABLE IF NOT EXISTS edges (edge_id TEXT PRIMARY KEY, map_id INT DEFAULT 1)");
+        await db.query("INSERT INTO edges (edge_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [TEST_EDGE_START]);
+        await db.query("CREATE TABLE IF NOT EXISTS edge_status (edge_id TEXT PRIMARY KEY, occupancy_rate FLOAT, map_id INT DEFAULT 1)");
+        await db.query("INSERT INTO edge_status (edge_id, occupancy_rate, map_id) VALUES ($1, 0.95, 1) ON CONFLICT (edge_id) DO UPDATE SET occupancy_rate = 0.95", [TEST_EDGE_JAM]);
     });
 
     afterAll(async () => {
@@ -78,7 +78,7 @@ describe('Integration Test: API Get Density Alerts', () => {
     describe('Logic Nghiệp vụ & Lỗi hệ thống', () => {
         it('TC-07: Logic - Không cảnh báo tắc nghẽn đối với vị trí hiện tại của user', async () => {
             // Giả lập chính vị trí user đang đứng cũng bị tắc
-            await db.query("INSERT INTO edge_status (edge_id, occupancy_rate) VALUES ($1, 0.99) ON CONFLICT (edge_id) DO UPDATE SET occupancy_rate = 0.99", [TEST_EDGE_START]);
+            await db.query("INSERT INTO edge_status (edge_id, occupancy_rate, map_id) VALUES ($1, 0.99, 1) ON CONFLICT (edge_id) DO UPDATE SET occupancy_rate = 0.99", [TEST_EDGE_START]);
 
             const res = await request(app)
                 .get(endpoint)

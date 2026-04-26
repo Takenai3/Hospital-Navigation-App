@@ -17,7 +17,7 @@ describe('Integration Test: API Report Obstacle', () => {
 
     beforeAll(async () => {
         // Setup bảng routes và obstacles
-        await db.query("CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_id TEXT UNIQUE)");
+        await db.query("CREATE TABLE IF NOT EXISTS routes (id SERIAL PRIMARY KEY, route_id TEXT UNIQUE, map_id INT DEFAULT 1)");
         await db.query(`CREATE TABLE IF NOT EXISTS obstacles (
             id SERIAL PRIMARY KEY,
             route_id TEXT,
@@ -25,11 +25,12 @@ describe('Integration Test: API Report Obstacle', () => {
             x_coordinate FLOAT,
             y_coordinate FLOAT,
             description TEXT,
-            status TEXT
+            status TEXT,
+            map_id INT DEFAULT 1
         )`);
 
         // Chèn route_id mẫu để vượt qua check 5003
-        await db.query("INSERT INTO routes (route_id) VALUES ($1) ON CONFLICT DO NOTHING", [mockData.route_id]);
+        await db.query("INSERT INTO routes (route_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [mockData.route_id]);
     });
 
     afterAll(async () => {
@@ -83,7 +84,7 @@ describe('Integration Test: API Report Obstacle', () => {
 
         it('TC-07: Logic - Lưu đúng loại vật cản vào Database', async () => {
             const specialRoute = 'R_ELEV';
-            await db.query("INSERT INTO routes (route_id) VALUES ($1) ON CONFLICT DO NOTHING", [specialRoute]);
+            await db.query("INSERT INTO routes (route_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [specialRoute]);
 
             const specialData = { ...mockData, type: 'BROKEN_ELEVATOR', route_id: specialRoute };
             await request(app).post(endpoint).send(specialData);

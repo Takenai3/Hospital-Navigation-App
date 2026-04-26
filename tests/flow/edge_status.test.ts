@@ -9,17 +9,18 @@ describe('Integration Test: API edge_status', () => {
 
     beforeAll(async () => {
         // Setup bảng edges và dữ liệu mật độ
-        await db.query(`CREATE TABLE IF NOT EXISTS edges (edge_id TEXT PRIMARY KEY)`);
+        await db.query(`CREATE TABLE IF NOT EXISTS edges (edge_id TEXT PRIMARY KEY, map_id INT DEFAULT 1)`);
         await db.query(`CREATE TABLE IF NOT EXISTS edge_density (
             edge_id TEXT PRIMARY KEY,
             current_count INTEGER,
-            fill_percentage TEXT
+            fill_percentage TEXT,
+            map_id INT DEFAULT 1
         )`);
 
         // Chèn dữ liệu mẫu
-        await db.query("INSERT INTO edges (edge_id) VALUES ($1) ON CONFLICT DO NOTHING", [VALID_EDGE]);
+        await db.query("INSERT INTO edges (edge_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [VALID_EDGE]);
         await db.query(
-            "INSERT INTO edge_density (edge_id, current_count, fill_percentage) VALUES ($1, 10, '85%') ON CONFLICT DO NOTHING",
+            "INSERT INTO edge_density (edge_id, current_count, fill_percentage, map_id) VALUES ($1, 10, '85%', 1) ON CONFLICT DO NOTHING",
             [VALID_EDGE]
         );
     });
@@ -62,7 +63,7 @@ describe('Integration Test: API edge_status', () => {
 
         it('TC-04: 6002 | DENSITY_UNAVAILABLE - Không có dữ liệu mật độ tại đoạn đường này', async () => {
             const EMPTY_EDGE = 'EDGE_EMPTY_DATA';
-            await db.query("INSERT INTO edges (edge_id) VALUES ($1) ON CONFLICT DO NOTHING", [EMPTY_EDGE]);
+            await db.query("INSERT INTO edges (edge_id, map_id) VALUES ($1, 1) ON CONFLICT DO NOTHING", [EMPTY_EDGE]);
 
             const res = await request(app)
                 .get(endpoint)
