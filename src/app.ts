@@ -55,7 +55,7 @@ app.post('/api/auth/signup', async (req: Request, res: Response) => {
 
     // 5. Insert to DB
     const result = await db.query(
-      "INSERT INTO users (phone, password_hash, full_name, status) VALUES ($1, $2, $3, 'active') RETURNING id",
+      "INSERT INTO users (phone, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id",
       [phone.trim(), password, full_name.trim()]
     );
 
@@ -473,7 +473,7 @@ app.post('/api/flow/set_priority', async (req: Request, res: Response) => {
     if (!token || !emergency_id || !start_point || !end_point) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
     if (token !== 'medical_staff_token_2026' && token !== 'admin_secret_token_2026') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
 
-    const nodeCheck = await db.query('SELECT node_id FROM nodes WHERE node_id IN ($1, $2)', [start_point, end_point]);
+    const nodeCheck = await db.query('SELECT id FROM nodes WHERE id IN ($1, $2)', [start_point, end_point]);
     if (nodeCheck.rows.length < 2) return res.status(200).json({ code: RESPONSE_CODES.NODE_NOT_FOUND });
 
     if (end_point === 'NODE_C') return res.status(200).json({ code: RESPONSE_CODES.PATH_NOT_FOUND });
