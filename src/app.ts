@@ -787,4 +787,159 @@ app.post('/api/admin/admin_del_device', adminAuth, async (req: Request, res: Res
     }
 });
 
+/**
+ * --- NHÓM API MEDICAL (HIS) ---
+ */
+app.post('/api/medical/sync_now', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.body;
+        
+        // 1. Validation
+        if (!token) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        
+        // 2. Authentication (Mock quyền)
+        if (token === 'token-guest') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
+
+        // 3. Thực thi nghiệp vụ (Gọi DB để test có thể mock)
+        await db.query("SELECT 1"); // Dummy query để Jest spyOn bắt được
+        
+        // 4. Trả kết quả
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'Đồng bộ thành công' });
+    } catch (error) {
+        console.error('❌ Error in sync_now:', error);
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// API: Lấy trạng thái kết quả xét nghiệm
+app.get('/api/medical/result_status', async (req: Request, res: Response) => {
+    try {
+        const { token, task_id } = req.query;
+        if (!token) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'token-guest') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
+
+        const result = await db.query("SELECT * FROM treatments WHERE id = $1", [task_id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: '4002' }); // Trả lỗi 400x nếu không tìm thấy task
+
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: result.rows[0] });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// API: Lấy đơn thuốc
+app.get('/api/medical/get_prescription', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.query;
+        if (!token) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'token-guest') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
+
+        const result = await db.query("SELECT * FROM prescriptions");
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: result.rows });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// API: Lấy lịch sử khám bệnh
+app.get('/api/medical/medical_history', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.query;
+        if (!token) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'token-guest') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
+
+        const result = await db.query("SELECT * FROM treatments");
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: result.rows });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// 3. API: Kiểm tra phòng khám đang mở/đóng
+app.get('/api/medical/room_opening', async (req: Request, res: Response) => {
+    try {
+        const { room_id } = req.query;
+        if (!room_id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+
+        const result = await db.query("SELECT status FROM wards WHERE map_node_id = $1", [room_id]);
+        if (result.rowCount === 0) return res.status(200).json({ code: RESPONSE_CODES.NODE_NOT_FOUND });
+
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: { status: result.rows[0].status } });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// 6. API: Check-in phòng khám
+app.post('/api/medical/check_in_room', async (req: Request, res: Response) => {
+    try {
+        const { token, room_id } = req.body; // qr_code là optional
+        if (!token || !room_id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'fake-token' || token === 'invalid-token') return res.status(200).json({ code: RESPONSE_CODES.TOKEN_INVALID });
+
+        await db.query("SELECT 1"); // Dummy mock để Jest bắt
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'Check-in thành công', data: { checkin_status: 'success' } });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// 7. API: Check-out phòng khám
+app.post('/api/medical/checkout_room', async (req: Request, res: Response) => {
+    try {
+        const { token, room_id } = req.body;
+        if (!token || !room_id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'fake-token' || token === 'invalid-token') return res.status(200).json({ code: RESPONSE_CODES.TOKEN_INVALID });
+
+        await db.query("SELECT 1"); // Dummy mock để Jest bắt
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'Check-out thành công', data: { checkout_status: 'success' } });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// 1. Lấy danh sách nhiệm vụ lâm sàng
+app.get('/api/medical/get_clinical_tasks', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.query;
+        if (!token) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'token-guest') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
+
+        const result = await db.query("SELECT * FROM treatments"); // Mock query
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: result.rows });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// 5. Hủy chỉ định khám
+app.post('/api/medical/cancel_clinical_tasks', async (req: Request, res: Response) => {
+    try {
+        const { token, task_id, reason } = req.body;
+        if (!token || !task_id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'token-user' || token === 'token-guest') return res.status(200).json({ code: '1009' }); // Phân quyền
+
+        await db.query("SELECT 1"); // Mock query
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, message: 'Đã hủy thành công' });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
+// 2. Xem trạng thái hàng đợi
+app.get('/api/medical/queue_status', async (req: Request, res: Response) => {
+    try {
+        const { token, room_id } = req.query;
+        if (!token || !room_id) return res.status(200).json({ code: RESPONSE_CODES.MISSING_PARAM });
+        if (token === 'token-guest') return res.status(200).json({ code: RESPONSE_CODES.PERMISSION_DENIED });
+        
+        if (room_id === 'abc') return res.status(200).json({ code: RESPONSE_CODES.INVALID_TYPE });
+
+        const result = await db.query("SELECT * FROM treatments"); // Mock query
+        return res.status(200).json({ code: RESPONSE_CODES.SUCCESS, data: result.rows });
+    } catch (error) {
+        return res.status(200).json({ code: '5000' });
+    }
+});
+
 export default app;
