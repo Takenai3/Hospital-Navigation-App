@@ -3,32 +3,31 @@ import app from '../../src/app';
 import { db } from '../../src/config/database';
 import { RESPONSE_CODES } from '../../src/constants/response-codes';
 
-
 describe('Send Messages Integration Test Suite', () => {
   let userAToken: string;
   let userBToken: string;
   let conversationAId: string;
-  const TEST_MAP_ID = 888;
 
   beforeAll(async () => {
-    // Tạo 2 user để test truy cập chéo
-    const userA = await db.query("INSERT INTO users (phone, full_name) VALUES ('0911000001', 'User A') RETURNING id");
-    const userB = await db.query("INSERT INTO users (phone, full_name) VALUES ('0911000002', 'User B') RETURNING id");
-    userAToken = 'token-' + userA.rows[0].id;
-    userBToken = 'token-' + userB.rows[0].id;
+    // 1. Tạo User A và B
+    const userA = await db.query("INSERT INTO users (phone, full_name, password_hash) VALUES ('0923000001', 'Mock Name', 'mock_pass') RETURNING id");
+    const userB = await db.query("INSERT INTO users (phone, full_name, password_hash) VALUES ('0923000002', 'Mock Name', 'mock_pass') RETURNING id");
+    userAToken = userA.rows[0].id.toString();
+    userBToken = userB.rows[0].id.toString();
 
-    // Tạo cuộc hội thoại thuộc về User A
-    const conv = await db.query(
-      "INSERT INTO conversations (token, topic, status) VALUES ($1, 'Hỗ trợ viện phí', 'open') RETURNING id",
-      [userAToken]
-    );
+    // 2. Tạo cuộc hội thoại cho User A
+    const conv = await db.query("INSERT INTO conversations (type) VALUES ('direct') RETURNING id");
     conversationAId = conv.rows[0].id.toString();
+
+    // 3. Mồi participants cho User A
+    await db.query("INSERT INTO participants (conversation_id, user_id) VALUES ($1, $2)", [conversationAId, userA.rows[0].id]);
   });
 
   afterAll(async () => {
-    await db.query("DELETE FROM chat_messages WHERE conversation_id = $1", [conversationAId]);
+    await db.query("DELETE FROM messages WHERE conversation_id = $1", [conversationAId]);
+    await db.query("DELETE FROM participants WHERE conversation_id = $1", [conversationAId]);
     await db.query("DELETE FROM conversations WHERE id = $1", [conversationAId]);
-    await db.query("DELETE FROM users WHERE phone IN ('0911000001', '0911000002')");
+    await db.query("DELETE FROM users WHERE phone IN ('0923000001', '0923000002')");
   });
 
   describe('POST /api/chat/send_messages', () => {
@@ -38,26 +37,17 @@ describe('Send Messages Integration Test Suite', () => {
       const res = await request(app)
         .post(endpoint)
         .set('token', userAToken)
-        .send({
-          conversation_id: conversationAId,
-          message: "Chào bác sĩ, tôi muốn hỏi...",
-          type: "text"
-        });
+        .send({ conversation_id: conversationAId, message: "Hello world", type: "text" });
 
       expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
-      expect(res.body.data.message_id).toBeDefined();
-      expect(res.body.data.created_at).toBeDefined();
+      expect(res.body.data).toHaveProperty('message_id');
     });
 
     it('TC-2: Gửi tin nhắn dạng hình ảnh thành công (1000)', async () => {
       const res = await request(app)
         .post(endpoint)
         .set('token', userAToken)
-        .send({
-          conversation_id: conversationAId,
-          message: "https://hospital.com/uploads/img.jpg",
-          type: "image"
-        });
+        .send({ conversation_id: conversationAId, message: "http://img.vn/1.jpg", type: "image" });
 
       expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
     });

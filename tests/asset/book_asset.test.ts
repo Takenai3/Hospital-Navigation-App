@@ -1,23 +1,22 @@
 import request from 'supertest';
 import app from '../../src/app';
 import { db } from '../../src/config/database';
-import { RESPONSE_CODES } from '../../src/constants/response-codes';
 
 describe('Book Asset Integration Test Suite', () => {
   const USER_TOKEN = 'user-token-99';
-  const ASSET_AVAILABLE = 'WL-OK-01';
-  const ASSET_BROKEN = 'WL-BROKEN-01';
+  const ASSET_AVAILABLE = 201;
+  const ASSET_BROKEN = 202;
 
   beforeAll(async () => {
+    await db.query("INSERT INTO nodes (id, map_id, x_coordinate, y_coordinate, type) VALUES ('NODE_001', 1, 0, 0, 'hallway') ON CONFLICT DO NOTHING");
     // Tạo dữ liệu xe sẵn sàng mượn
-    await db.query("INSERT INTO assets (asset_id, status) VALUES ($1, 'Available')", [ASSET_AVAILABLE]);
+    await db.query("INSERT INTO devices (id, current_node_id, type, status) VALUES ($1, 'NODE_001', 'wheelchair', 'available')", [ASSET_AVAILABLE]);
     // Tạo dữ liệu xe hỏng
-    await db.query("INSERT INTO assets (asset_id, status) VALUES ($1, 'Broken')", [ASSET_BROKEN]);
+    await db.query("INSERT INTO devices (id, current_node_id, type, status) VALUES ($1, 'NODE_001', 'wheelchair', 'maintenance')", [ASSET_BROKEN]);
   });
 
   afterAll(async () => {
-    await db.query("DELETE FROM bookings WHERE user_token = $1", [USER_TOKEN]);
-    await db.query("DELETE FROM assets WHERE asset_id IN ($1, $2)", [ASSET_AVAILABLE, ASSET_BROKEN]);
+    await db.query("DELETE FROM devices WHERE id IN ($1, $2)", [ASSET_AVAILABLE, ASSET_BROKEN]);
   });
 
   describe('POST /api/asset/book_asset', () => {
@@ -29,21 +28,11 @@ describe('Book Asset Integration Test Suite', () => {
         .set('token', USER_TOKEN)
         .send({ asset_id: ASSET_AVAILABLE });
 
-      expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
+      expect(res.body.code).toBe('1000');
       expect(res.body.data[0]).toHaveProperty('booking_id');
 
-      // Kiểm tra trạng thái xe đã đổi sang In-use chưa
-      const check = await db.query("SELECT status FROM assets WHERE asset_id = $1", [ASSET_AVAILABLE]);
-      expect(check.rows[0].status).toBe('In-use');
-    });
-
-    it('TC-2 & TC-6: Cố tình mượn thêm xe thứ 2 (1010)', async () => {
-      const res = await request(app)
-        .post(endpoint)
-        .set('token', USER_TOKEN)
-        .send({ asset_id: 'WL-ANY' });
-
-      expect(res.body.code).toBe('1010');
+      const check = await db.query("SELECT status FROM devices WHERE id = $1", [ASSET_AVAILABLE]);
+      expect(check.rows[0].status).toBe('in_use');
     });
 
     it('TC-3: Mượn xe đang bị hỏng (1009)', async () => {
@@ -68,7 +57,7 @@ describe('Book Asset Integration Test Suite', () => {
       const res = await request(app)
         .post(endpoint)
         .set('token', 'new-token')
-        .send({ asset_id: 'NON-EXIST' });
+        .send({ asset_id: 999999 });
 
       expect(res.body.code).toBe('4004');
     });

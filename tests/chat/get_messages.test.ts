@@ -10,29 +10,32 @@ describe('Get Messages Integration Test Suite', () => {
 
   beforeAll(async () => {
     // 1. Tạo User A và B
-    const userA = await db.query("INSERT INTO users (phone, full_name) VALUES ('0922000001', 'User A') RETURNING id");
-    const userB = await db.query("INSERT INTO users (phone, full_name) VALUES ('0922000002', 'User B') RETURNING id");
-    userAToken = 'token-' + userA.rows[0].id;
-    userBToken = 'token-' + userB.rows[0].id;
+    const userA = await db.query("INSERT INTO users (phone, full_name, password_hash) VALUES ('0922000001', 'Mock Name', 'mock_pass') RETURNING id");
+    const userB = await db.query("INSERT INTO users (phone, full_name, password_hash) VALUES ('0922000002', 'Mock Name', 'mock_pass') RETURNING id");
+    userAToken = userA.rows[0].id.toString();
+    userBToken = userB.rows[0].id.toString();
 
     // 2. Tạo cuộc hội thoại cho User A
     const conv = await db.query(
-      "INSERT INTO conversations (token, topic, status) VALUES ($1, 'Khám nhi', 'open') RETURNING id",
-      [userAToken]
+      "INSERT INTO conversations (type) VALUES ('direct') RETURNING id"
     );
     conversationAId = conv.rows[0].id.toString();
 
-    // 3. Tạo 5 tin nhắn mẫu
+    // 3. Mồi participants (QUAN TRỌNG)
+    await db.query("INSERT INTO participants (conversation_id, user_id) VALUES ($1, $2)", [conversationAId, userA.rows[0].id]);
+
+    // 4. Tạo 5 tin nhắn mẫu
     for(let i = 1; i <= 5; i++) {
       await db.query(
-        "INSERT INTO chat_messages (conversation_id, sender_token, content, type) VALUES ($1, $2, $3, 'text')",
-        [conversationAId, userAToken, `Message ${i}`]
+        "INSERT INTO messages (conversation_id, sender_id, content) VALUES ($1, $2, $3)",
+        [conversationAId, userA.rows[0].id, `Message ${i}`]
       );
     }
   });
 
   afterAll(async () => {
-    await db.query("DELETE FROM chat_messages WHERE conversation_id = $1", [conversationAId]);
+    await db.query("DELETE FROM messages WHERE conversation_id = $1", [conversationAId]);
+    await db.query("DELETE FROM participants WHERE conversation_id = $1", [conversationAId]);
     await db.query("DELETE FROM conversations WHERE id = $1", [conversationAId]);
     await db.query("DELETE FROM users WHERE phone IN ('0922000001', '0922000002')");
   });
@@ -46,8 +49,8 @@ describe('Get Messages Integration Test Suite', () => {
         .set('token', userAToken)
         .query({ conversation_id: conversationAId, index: 0, count: 20 });
 
-      expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
-      expect(res.body.data.length).toBe(5); // Có 5 tin nhắn mẫu
+      expect(res.body.code).toBe('1000');
+      expect(res.body.data.length).toBe(5);
       expect(res.body.data[0]).toHaveProperty('is_mine', '1');
     });
 
@@ -57,7 +60,7 @@ describe('Get Messages Integration Test Suite', () => {
         .set('token', userAToken)
         .query({ conversation_id: conversationAId, index: 20, count: 10 });
 
-      expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
+      expect(res.body.code).toBe('1000');
       expect(res.body.data).toEqual([]);
     });
 

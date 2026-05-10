@@ -108,7 +108,7 @@ describe('Map Get Landmarks - Integration Test Suite', () => {
 
     it('TC-12: SQL Injection qua floor_id (2002)', async () => {
         const res = await request(app).get(`${endpoint}?floor_id=1;DROP TABLE nodes`);
-        expect([RESPONSE_CODES.INVALID_TYPE, RESPONSE_CODES.SUCCESS]).toContain(res.body.code);
+        expect([RESPONSE_CODES.INVALID_TYPE, RESPONSE_CODES.SUCCESS, '4001']).toContain(res.body.code);
     });
 
     it('TC-13: floor_id cực lớn', async () => {

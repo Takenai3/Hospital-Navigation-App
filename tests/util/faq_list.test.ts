@@ -16,7 +16,6 @@ describe('API faq_list Test Suite', () => {
 
   afterAll(async () => {
     await db.query("DELETE FROM faqs WHERE question LIKE '[TEST]%'");
-    await db.end();
   });
 
   it('TC-1: Luồng chuẩn - Lấy toàn bộ danh sách FAQ (1000)', async () => {

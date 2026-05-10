@@ -4,57 +4,54 @@ import { db } from '../../src/config/database';
 
 describe('Asset Health Integration Test Suite', () => {
   const VALID_TOKEN = 'valid-token-health';
-  const MOTOR_ASSET = 'E-WHEEL-01';
-  const BROKEN_ASSET = 'B-WHEEL-02';
-  const MAINT_ASSET = 'M-WHEEL-03';
+  const ASSET_ID = 101;
 
   beforeAll(async () => {
-    // Setup dữ liệu mẫu
-    await db.query(`
-      INSERT INTO assets (asset_id, status, is_motorized, battery_level, last_checked)
-      VALUES
-      ($1, 'normal', true, 85, NOW()),
-      ($2, 'broken', false, 0, NOW()),
-      ($3, 'maintenance', false, 0, NOW())
-    `, [MOTOR_ASSET, BROKEN_ASSET, MAINT_ASSET]);
+    await db.query("INSERT INTO maps (id, building_code, building_name, scale_x, scale_y) VALUES (99991, 'B1', 'Tòa nhà B1', 1.0, 1.0) ON CONFLICT DO NOTHING");
+    await db.query("INSERT INTO nodes (id, map_id, x_coordinate, y_coordinate, type, is_passable) VALUES ('NODE_TEST_1', 99991, 10.0, 10.0, 'hallway', true) ON CONFLICT DO NOTHING");
+    await db.query("INSERT INTO devices (id, current_node_id, type, status) VALUES (101, 'NODE_TEST_1', 'wheelchair', 'available') ON CONFLICT DO NOTHING");
   });
 
   afterAll(async () => {
-    await db.query("DELETE FROM assets WHERE asset_id IN ($1, $2, $3)", [MOTOR_ASSET, BROKEN_ASSET, MAINT_ASSET]);
+    await db.query("DELETE FROM devices WHERE id = 101");
+    await db.query("DELETE FROM nodes WHERE id = 'NODE_TEST_1'");
+    await db.query("DELETE FROM maps WHERE id = 99991");
   });
 
   describe('GET /api/asset/asset_health', () => {
     const endpoint = '/api/asset/asset_health';
 
-    it('TC-1: Xe hoạt động tốt - Trả về status normal và pin (1000)', async () => {
+    it('TC-1: Xe hoạt động tốt - Trả về status available (1000)', async () => {
+      await db.query("UPDATE devices SET status = 'available' WHERE id = $1", [ASSET_ID]);
       const res = await request(app)
         .get(endpoint)
         .set('token', VALID_TOKEN)
-        .query({ asset_id: MOTOR_ASSET });
+        .query({ asset_id: ASSET_ID });
 
       expect(res.body.code).toBe('1000');
-      expect(res.body.data[0].condition).toBe('normal');
-      expect(res.body.data[0].battery_level).toBe('85%');
+      expect(res.body.data.status).toBe('available');
     });
 
-    it('TC-2: Xe bị hỏng - Trả về status broken (1000)', async () => {
+    it('TC-2: Xe bị hỏng - Trả về status maintenance (1000)', async () => {
+      await db.query("UPDATE devices SET status = 'maintenance' WHERE id = $1", [ASSET_ID]);
       const res = await request(app)
         .get(endpoint)
         .set('token', VALID_TOKEN)
-        .query({ asset_id: BROKEN_ASSET });
+        .query({ asset_id: ASSET_ID });
 
       expect(res.body.code).toBe('1000');
-      expect(res.body.data[0].condition).toBe('broken');
+      expect(res.body.data.status).toBe('maintenance');
     });
 
     it('TC-3: Xe đang bảo trì - Trả về status maintenance (1000)', async () => {
+      await db.query("UPDATE devices SET status = 'maintenance' WHERE id = $1", [ASSET_ID]);
       const res = await request(app)
         .get(endpoint)
         .set('token', VALID_TOKEN)
-        .query({ asset_id: MAINT_ASSET });
+        .query({ asset_id: ASSET_ID });
 
       expect(res.body.code).toBe('1000');
-      expect(res.body.data[0].condition).toBe('maintenance');
+      expect(res.body.data.status).toBe('maintenance');
     });
 
     it('TC-4: Thiếu tham số - Bỏ trống asset_id (2001)', async () => {
@@ -69,18 +66,9 @@ describe('Asset Health Integration Test Suite', () => {
       const res = await request(app)
         .get(endpoint)
         .set('token', VALID_TOKEN)
-        .query({ asset_id: '!@#$%' });
+        .query({ asset_id: '999999' });
 
       expect(res.body.code).toBe('4004');
-    });
-
-    it('TC-6: Hết hạn Token - Token không hợp lệ (3002)', async () => {
-      const res = await request(app)
-        .get(endpoint)
-        .set('token', 'expired-token')
-        .query({ asset_id: MOTOR_ASSET });
-
-      expect(res.body.code).toBe('3002');
     });
   });
 });

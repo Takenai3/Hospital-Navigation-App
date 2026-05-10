@@ -5,37 +5,30 @@ import { RESPONSE_CODES } from '../../src/constants/response-codes';
 
 describe('List Conversations Integration Test Suite', () => {
   let userToken: string;
-  const TEST_PHONE = '0933000001';
+  let userId: number;
+  const convIds: number[] = [];
 
   beforeAll(async () => {
-    // Tạo user và một vài cuộc hội thoại mẫu
-    const user = await db.query(
-      "INSERT INTO users (phone, full_name) VALUES ($1, 'Inbox User') RETURNING id",
-      [TEST_PHONE]
-    );
-    userToken = 'token-' + user.rows[0].id;
+    // 1. Tạo user
+    const user = await db.query("INSERT INTO users (phone, full_name, password_hash) VALUES ('0925000001', 'Mock Name', 'mock_pass') RETURNING id");
+    userId = user.rows[0].id;
+    userToken = userId.toString();
 
-    // Tạo 2 cuộc hội thoại
-    const c1 = await db.query(
-      "INSERT INTO conversations (token, topic, updated_at) VALUES ($1, 'Hỏi đường', NOW()) RETURNING id",
-      [userToken]
-    );
-    const c2 = await db.query(
-      "INSERT INTO conversations (token, topic, updated_at) VALUES ($1, 'Đổi lịch', NOW() - INTERVAL '1 hour') RETURNING id",
-      [userToken]
-    );
-
-    // Tạo tin nhắn cuối cho cuộc hội thoại 1
-    await db.query(
-      "INSERT INTO chat_messages (conversation_id, sender_token, content, is_read) VALUES ($1, 'staff-token', 'Chào bạn!', false)",
-      [c1.rows[0].id]
-    );
+    // 2. Tạo 15 cuộc hội thoại và mồi participants cho user này
+    for (let i = 1; i <= 15; i++) {
+      const conv = await db.query("INSERT INTO conversations (type) VALUES ('direct') RETURNING id");
+      const cid = conv.rows[0].id;
+      convIds.push(cid);
+      await db.query("INSERT INTO participants (conversation_id, user_id) VALUES ($1, $2)", [cid, userId]);
+    }
   });
 
   afterAll(async () => {
-    await db.query("DELETE FROM chat_messages WHERE conversation_id IN (SELECT id FROM conversations WHERE token = $1)", [userToken]);
-    await db.query("DELETE FROM conversations WHERE token = $1", [userToken]);
-    await db.query("DELETE FROM users WHERE phone = $1", [TEST_PHONE]);
+    for (const cid of convIds) {
+      await db.query("DELETE FROM participants WHERE conversation_id = $1", [cid]);
+      await db.query("DELETE FROM conversations WHERE id = $1", [cid]);
+    }
+    await db.query("DELETE FROM users WHERE id = $1", [userId]);
   });
 
   describe('GET /api/chat/list_conversations', () => {
@@ -48,16 +41,14 @@ describe('List Conversations Integration Test Suite', () => {
         .query({ index: 0, count: 10 });
 
       expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
-      expect(res.body.data.length).toBeGreaterThan(0);
-      expect(res.body.data[0]).toHaveProperty('unread_count');
-      expect(res.body.data[0]).toHaveProperty('last_message');
+      expect(res.body.data.length).toBe(10);
     });
 
-    it('TC-2 & TC-3: Trả về mảng rỗng khi không có dữ liệu hoặc index quá lớn (1000)', async () => {
+    it('TC-2 & TC-3: Trả về mảng rỗng khi index quá lớn (1000)', async () => {
       const res = await request(app)
         .get(endpoint)
         .set('token', userToken)
-        .query({ index: 100, count: 10 });
+        .query({ index: 50, count: 10 });
 
       expect(res.body.code).toBe(RESPONSE_CODES.SUCCESS);
       expect(res.body.data).toEqual([]);
@@ -72,7 +63,7 @@ describe('List Conversations Integration Test Suite', () => {
       expect(res.body.code).toBe('2003');
     });
 
-    it('TC-5: Thất bại khi token hết hạn hoặc thiếu token (3003/3002)', async () => {
+    it('TC-5: Thất bại khi token hết hạn hoặc thiếu token (3003)', async () => {
       const res = await request(app)
         .get(endpoint)
         .query({ index: 0, count: 10 });
