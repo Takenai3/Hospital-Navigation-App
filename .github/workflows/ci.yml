@@ -1,0 +1,58 @@
+name: Hospital Navigation CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    # Khởi tạo một service PostgreSQL ảo ngay trên GitHub
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: hospital_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    # Bước 1: Kéo code từ GitHub về máy ảo
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # Bước 2: Cài đặt NodeJS
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    # Bước 3: Cài đặt thư viện
+    - name: Install Dependencies
+      run: npm ci
+
+    # Bước 4: Chạy file SQL để tạo cấu trúc DB chuẩn
+    - name: Setup Database Schema
+      env:
+        PGPASSWORD: test_password
+      run: |
+        psql -h localhost -U test_user -d hospital_test_db -f hospital_DB_test_2.sql
+
+    # Bước 5: Chạy lệnh Test toàn hệ thống
+    - name: Run Test Suite
+      env:
+        DATABASE_URL: postgres://test_user:test_password@localhost:5432/hospital_test_db
+        NODE_ENV: test
+        BASE_URL: http://localhost:3000
+      run: npm test

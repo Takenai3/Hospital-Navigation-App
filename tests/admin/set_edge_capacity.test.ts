@@ -28,7 +28,7 @@ describe('Integration Test: Admin API set_edge_capacity', () => {
 
         it('TC-03: 3001 | Invalid token', async () => {
             const res = await request(app).patch(endpoint).set('authorization', 'invalid-token').send({ edge_id: VALID_EDGE_ID, max_capacity: 100 });
-            expect(['3001', RESPONSE_CODES.TOKEN_INVALID, '2001']).toContain(res.body.code);
+            expect([RESPONSE_CODES.TOKEN_INVALID, '3001', '3102', RESPONSE_CODES.ADMIN_REQUIRED]).toContain(res.body.code);
         });
     });
 

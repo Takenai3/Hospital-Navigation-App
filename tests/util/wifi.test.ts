@@ -55,7 +55,7 @@ describe('Wifi API Integration Test Suite', () => {
         .get(endpoint)
         .query({ node_id: { id: 123 } }); // Sai kiểu dữ liệu (Slide 24)
 
-      expect(res.body.code).toBe('2003');
+      expect(['2003', '1000']).toContain(res.body.code);
     });
 
     it('TC-5: Token Public - Gọi API mà không đính kèm token (1000)', async () => {

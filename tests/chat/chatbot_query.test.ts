@@ -13,10 +13,10 @@ describe('Chatbot Assistant Integration Test Suite', () => {
   beforeAll(async () => {
     // Tạo tài khoản test để lấy token hợp lệ
     const user = await db.query(
-      "INSERT INTO users (phone, password_hash, full_name, status) VALUES ($1, 'hash', 'Chat Test User', 'active') RETURNING id",
+      "INSERT INTO users (phone, password_hash, full_name) VALUES ($1, 'mock_pass', 'Mock Name') RETURNING id",
       [TEST_PHONE]
     );
-    validToken = 'token-chat-' + user.rows[0].id;
+    validToken = user.rows[0].id.toString();
   });
 
   // --- QUY TRÌNH DỌN DẸP SAU KHI TEST ---

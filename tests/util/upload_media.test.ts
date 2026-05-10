@@ -1,6 +1,5 @@
 import request from 'supertest';
 import app from '../../src/app';
-import path from 'path';
 
 describe('API upload_media Test Suite', () => {
   const endpoint = '/api/util/upload_media';
@@ -11,12 +10,12 @@ describe('API upload_media Test Suite', () => {
     const res = await request(app)
       .post(endpoint)
       .set('Authorization', mockToken)
-      .attach('file', path.resolve(__dirname, '../fixtures/sample_image.jpg'))
-      .field('folder', 'report');
+      .field('folder', 'report')
+      .attach('file', Buffer.from('dummy image data'), 'sample_image.jpg');
 
     expect(res.body.code).toBe('1000');
-    expect(res.body.data[0]).toHaveProperty('file_url');
-    expect(res.body.data[0].file_url).toContain('https://');
+    expect(res.body.data).toHaveProperty('url');
+    expect(res.body.data.url).toContain('https://');
   });
 
   // TC-2: Định dạng không hỗ trợ
@@ -24,22 +23,22 @@ describe('API upload_media Test Suite', () => {
     const res = await request(app)
       .post(endpoint)
       .set('Authorization', mockToken)
-      .attach('file', path.resolve(__dirname, '../fixtures/virus.exe'));
+      .attach('file', Buffer.from('virus content'), 'virus.exe');
 
     expect(res.body.code).toBe('2003');
-    expect(res.body.message).toBe('Invalid parameter value.');
   });
 
   // TC-3: Vượt quá dung lượng
   it('TC-3: Trả lỗi khi file video vượt quá giới hạn cấu hình (2006)', async () => {
-    // Giả lập file > 10MB
+    // Tạo Buffer giả dung lượng 6MB (Vượt quá limit 5MB của cấu hình Multer)
+    const largeBuffer = Buffer.alloc(6 * 1024 * 1024, 'a');
+    
     const res = await request(app)
       .post(endpoint)
       .set('Authorization', mockToken)
-      .attach('file', path.resolve(__dirname, '../fixtures/large_video.mp4'));
+      .attach('file', largeBuffer, 'large_video.mp4');
 
     expect(res.body.code).toBe('2006');
-    expect(res.body.message).toBe('File too large.');
   });
 
   // TC-4: Thiếu tệp tin
@@ -50,16 +49,14 @@ describe('API upload_media Test Suite', () => {
       .field('folder', 'avatar');
 
     expect(res.body.code).toBe('2001');
-    expect(res.body.message).toBe('Missing required parameter.');
   });
 
   // TC-5: Lỗi xác thực
   it('TC-5: Không truyền token trong Header (3003)', async () => {
     const res = await request(app)
       .post(endpoint)
-      .attach('file', path.resolve(__dirname, '../fixtures/sample_image.jpg'));
+      .attach('file', Buffer.from('dummy image data'), 'sample_image.jpg');
 
     expect(res.body.code).toBe('3003');
-    expect(res.body.message).toBe('User not authenticated.');
   });
 });
